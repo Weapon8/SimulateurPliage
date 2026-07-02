@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>SimulateurPliage</AssemblyName>
+    <Version>0.1.0</Version>
+    <!-- Un seul exe autonome, RIEN a cote : IncludeAllContentForSelfExtract
+         embarque AUSSI les natives WPF/DirectX recalcitrantes (wpfgfx, PenImc,
+         PresentationNative, vcruntime, D3DCompiler) qui sinon se posent a cote. -->
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    <!-- Ces options ne s'appliquent qu'au publish (build.bat), pas au F5. -->
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.37328.6 d17.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimulateurPliage", "SimulateurPliage.csproj", "{DAD69AE1-826E-C806-1546-BE991F9F3473}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{DAD69AE1-826E-C806-1546-BE991F9F3473}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DAD69AE1-826E-C806-1546-BE991F9F3473}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DAD69AE1-826E-C806-1546-BE991F9F3473}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DAD69AE1-826E-C806-1546-BE991F9F3473}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {5D81C99C-DF86-4893-82A6-B9AE1D115380}
+	EndGlobalSection
+EndGlobal
