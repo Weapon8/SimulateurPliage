@@ -102,17 +102,16 @@ namespace SimulateurPliage
             return st;
         }
 
-        // Face droite du poincon a la hauteur y : bec fin (35deg) sur BecHauteur,
-        // puis CORPS DROIT (largeur CorpsLg), avec le creux du col de cygne au-dessus de ColHauteur.
+        // Face droite du poincon a la hauteur y (fallback si pas de Poincon.Profil).
         public static double PoinconFaceX(double y, MachineConfig cfg)
         {
             if (y <= 0) return cfg.PoinconPointeLg / 2.0;
             double half = cfg.PoinconPointeLg / 2.0;
-            double becTop = half + cfg.BecHauteur * Math.Tan(cfg.DemiPointe); // largeur au sommet du bec
+            double becTop = half + cfg.BecHauteur * Math.Tan(cfg.DemiPointe);
             double x;
-            if (y <= cfg.BecHauteur) x = half + y * Math.Tan(cfg.DemiPointe); // bec evase
-            else x = Math.Max(becTop, cfg.CorpsLg / 2.0);                     // corps droit
-            if (y > cfg.ColHauteur) x -= cfg.ColRetrait;                      // creux du col de cygne
+            if (y <= cfg.BecHauteur) x = half + y * Math.Tan(cfg.DemiPointe);
+            else x = Math.Max(becTop, cfg.CorpsLg / 2.0);
+            if (y > cfg.ColHauteur) x -= cfg.ColRetrait;
             return Math.Max(0, x);
         }
 
@@ -122,25 +121,37 @@ namespace SimulateurPliage
             double ep = Math.Max(0.2, p.Epaisseur);
 
             // --- contours des outils dans le repere ancre (pointe de pli a l'origine) ---
-            var punch = poin != null ? poin.Contour() : null;         // pointe a l'origine, +Y
+            var punch = poin != null ? poin.Contour() : null;         // pointe a y=0, +Y
+            // on remonte le poincon : la pointe touche la FACE HAUTE de la tole (y = ep),
+            // sinon le pan a plat sur la matrice (y=0) rase la pointe -> faux positif.
+            if (punch != null) foreach (var q in punch) q[1] += ep;
+
             var die = DiePoly(mat, st.Op != null ? st.Op.V : 16, out _, out _, out _, out double dieH);
             double punchTop = poin != null ? poin.Hauteur : cfg.PoinconHauteur;
             List<double[]> porteP = null, semelle = null;
             if (emb != null)
             {
                 if (emb.PortePoinconLg > 0 && emb.PortePoinconH > 0)
-                    porteP = Rect(-emb.PortePoinconLg / 2, punchTop, emb.PortePoinconLg / 2, punchTop + emb.PortePoinconH);
+                    porteP = Rect(-emb.PortePoinconLg / 2, punchTop + ep, emb.PortePoinconLg / 2, punchTop + ep + emb.PortePoinconH);
                 if (emb.SemelleLg > 0 && emb.SemelleH > 0)
                     semelle = Rect(-emb.SemelleLg / 2, -dieH - emb.SemelleH, emb.SemelleLg / 2, -dieH);
             }
 
-            // --- segments de piece a TESTER : on exclut le "riser" (le volet droit en cours
-            //     de formage qui longe la face) et la zone de formage autour de la pointe.
-            //     Seuls les VRAIS retours plies / pans releves sont testes. ---
+            // largeur du poincon a la hauteur y (repere tole). En dessous de la pointe (y<ep) => 0.
+            double PunchW(double y)
+            {
+                double yy = y - ep;
+                if (yy < 0) return 0;
+                return poin != null ? poin.DemiLargeur(yy) : PoinconFaceX(yy, cfg);
+            }
+            // tole DANS l'ame du poincon : elle est formee autour de l'outil, pas une collision.
+            bool InAme(Pt q) => Math.Abs(q.X) <= PunchW(q.Y) + ep + 0.5;
+
+            // --- zone morte de formage autour de la pointe (dans le V) ---
             double Vopen0 = mat != null ? mat.VProche(st.Op != null ? st.Op.V : 16).V : 16;
-            double zoneY = ep + 6;                       // hauteur morte au-dessus de la pointe
-            double zoneX = Vopen0 / 2.0 + ep + 4;        // demi-largeur morte (dans le V)
-            bool InFormage(Pt p) => p.Y <= zoneY && p.Y >= -2 && Math.Abs(p.X) <= zoneX;
+            double zoneY = ep + 6;
+            double zoneX = Vopen0 / 2.0 + ep + 4;
+            bool InFormage(Pt q) => q.Y <= zoneY && q.Y >= -2 && Math.Abs(q.X) <= zoneX;
 
             var segs = new List<Pt[]>();
             // pans deja plies cote insertion (back chain) : tous
@@ -164,7 +175,9 @@ namespace SimulateurPliage
             {
                 Pt a = s[0], b = s[1];
                 if (InFormage(a) && InFormage(b)) continue;
-                if (!hitP && punch != null && SegCrossesPoly(a, b, punch)) hitP = true;
+                // POINCON : on ignore la tole qui longe/traverse l'ame (formage autour de l'outil).
+                //  Une vraie collision = un retour qui revient PAR LE FLANC -> au moins un bout hors de l'ame.
+                if (!hitP && punch != null && !(InAme(a) && InAme(b)) && SegCrossesPoly(a, b, punch)) hitP = true;
                 if (!hitM && die != null && (a.Y < -0.6 || b.Y < -0.6) && SegCrossesPoly(a, b, die)) hitM = true;
                 if (!hitPP && porteP != null && SegCrossesPoly(a, b, porteP)) hitPP = true;
                 if (!hitSem && semelle != null && SegCrossesPoly(a, b, semelle)) hitSem = true;
@@ -205,7 +218,6 @@ namespace SimulateurPliage
             };
         }
 
-        // franchissement : le segment a-b coupe une arete du polygone (pas juste "dedans")
         static bool SegCrossesPoly(Pt a, Pt b, List<double[]> poly)
         {
             int n = poly.Count;
@@ -215,13 +227,6 @@ namespace SimulateurPliage
                 var p4 = new Pt(poly[i][0], poly[i][1]);
                 if (Inter(a, b, p3, p4)) return true;
             }
-            return false;
-        }
-
-        static bool PolyCrosses(List<Pt> pts, List<double[]> poly)
-        {
-            for (int i = 0; i + 1 < pts.Count; i++)
-                if (SegCrossesPoly(pts[i], pts[i + 1], poly)) return true;
             return false;
         }
 

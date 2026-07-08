@@ -157,15 +157,22 @@ namespace SimulateurPliage
             for (int i = 1; i < st.Forming.Count; i++) chain.Add(new Pt(st.Forming[i].X, st.Forming[i].Y + seat));
             if (chain.Count < 2) return;
 
+            // ruban a l'echelle (epaisseur reelle) — souvent fin, sert de "corps" de tole
             var outer = OffsetMiter(chain, +ep / 2.0);
             var inner = OffsetMiter(chain, -ep / 2.0);
-
             var poly = new List<PointF>(outer.Count + inner.Count);
             foreach (var p in outer) poly.Add(T(p));
             for (int i = inner.Count - 1; i >= 0; i--) poly.Add(T(inner[i]));
+            using (var b = new SolidBrush(Color.FromArgb(150, col))) g.FillPolygon(b, poly.ToArray());
 
-            using (var b = new SolidBrush(Color.FromArgb(238, col))) g.FillPolygon(b, poly.ToArray());
-            using (var pn = new Pen(Color.FromArgb(60, 255, 255, 255), 1.2f)) g.DrawPolygon(pn, poly.ToArray());
+            // trait porteur EPAIS le long de la fibre — toujours lisible (facon Cybelec)
+            var line = new PointF[chain.Count];
+            for (int i = 0; i < chain.Count; i++) line[i] = T(chain[i]);
+            using (var pn = new Pen(col, 3.0f) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
+                g.DrawLines(pn, line);
+            // sommets de pli
+            using (var b = new SolidBrush(col))
+                foreach (var p in line) g.FillEllipse(b, p.X - 2.4f, p.Y - 2.4f, 4.8f, 4.8f);
         }
 
         // offset d'une polyligne d'une distance d (perpendiculaire gauche), coins mitres clampes
