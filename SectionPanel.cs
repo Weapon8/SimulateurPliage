@@ -73,7 +73,8 @@ namespace SimulateurPliage
             void Acc(double x, double y) { if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y; }
             foreach (var q in st.BackChain) Acc(q.X, q.Y + seat);
             foreach (var q in st.Forming) Acc(q.X, q.Y + seat);
-            for (double y = 0; y <= punchTop; y += 10) { double f = PunchFaceX(y); Acc(f, y + ep); Acc(-f, y + ep); }
+            if (poin != null) foreach (var p in poin.Contour()) Acc(p[0], p[1] + ep);
+            else for (double y = 0; y <= punchTop; y += 10) { double f = PunchFaceX(y); Acc(f, y + ep); Acc(-f, y + ep); }
             Acc(-semW / 2, -dieH - semH); Acc(semW / 2, -dieH - semH);
             Acc(-ppW / 2, punchTop + ep + ppH); Acc(ppW / 2, punchTop + ep + ppH);
 
@@ -109,12 +110,23 @@ namespace SimulateurPliage
             using (var b = new SolidBrush(CDie)) g.FillPolygon(b, die.ToArray());
             using (var pn = new Pen(Color.FromArgb(110, 120, 132), 1.4f)) g.DrawPolygon(pn, die.ToArray());
 
-            // --- poincon (profil reel, pointe posee sur la face haute de la tole a y=ep) ---
-            var pun = new List<PointF>();
-            for (double y = 0; y <= punchTop; y += 1.5) pun.Add(T(PunchFaceX(y), y + ep));
-            for (double y = punchTop; y >= 0; y -= 1.5) pun.Add(T(-PunchFaceX(y), y + ep));
-            using (var b = new SolidBrush(CTool)) g.FillPolygon(b, pun.ToArray());
-            using (var pn = new Pen(Color.FromArgb(130, 138, 150), 1.2f)) g.DrawPolygon(pn, pun.ToArray());
+            // --- poincon : CONTOUR REEL (col de cygne asymetrique), pointe posee a y=ep ---
+            var punchC = poin != null ? poin.Contour() : null;
+            if (punchC != null && punchC.Count >= 3)
+            {
+                var pun = new PointF[punchC.Count];
+                for (int i = 0; i < punchC.Count; i++) pun[i] = T(punchC[i][0], punchC[i][1] + ep);
+                using (var b = new SolidBrush(CTool)) g.FillPolygon(b, pun);
+                using (var pn = new Pen(Color.FromArgb(130, 138, 150), 1.2f)) g.DrawPolygon(pn, pun);
+            }
+            else
+            {
+                var pun = new List<PointF>();
+                for (double y = 0; y <= punchTop; y += 1.5) pun.Add(T(PunchFaceX(y), y + ep));
+                for (double y = punchTop; y >= 0; y -= 1.5) pun.Add(T(-PunchFaceX(y), y + ep));
+                using (var b = new SolidBrush(CTool)) g.FillPolygon(b, pun.ToArray());
+                using (var pn = new Pen(Color.FromArgb(130, 138, 150), 1.2f)) g.DrawPolygon(pn, pun.ToArray());
+            }
 
             // --- repere hauteur utile du poincon ---
             if (utile < punchTop)

@@ -137,15 +137,9 @@ namespace SimulateurPliage
                     semelle = Rect(-emb.SemelleLg / 2, -dieH - emb.SemelleH, emb.SemelleLg / 2, -dieH);
             }
 
-            // largeur du poincon a la hauteur y (repere tole). En dessous de la pointe (y<ep) => 0.
-            double PunchW(double y)
-            {
-                double yy = y - ep;
-                if (yy < 0) return 0;
-                return poin != null ? poin.DemiLargeur(yy) : PoinconFaceX(yy, cfg);
-            }
-            // tole DANS l'ame du poincon : elle est formee autour de l'outil, pas une collision.
-            bool InAme(Pt q) => Math.Abs(q.X) <= PunchW(q.Y) + ep + 0.5;
+            // tole DANS l'ame du poincon (interieur du contour reel, col de cygne compris) :
+            // elle est formee autour de l'outil -> pas une collision.
+            bool InAme(Pt q) => punch != null && PointInPoly(q, punch);
 
             // --- zone morte de formage autour de la pointe (dans le V) ---
             double Vopen0 = mat != null ? mat.VProche(st.Op != null ? st.Op.V : 16).V : 16;
@@ -228,6 +222,21 @@ namespace SimulateurPliage
                 if (Inter(a, b, p3, p4)) return true;
             }
             return false;
+        }
+
+        // point a l'interieur d'un polygone (ray casting)
+        static bool PointInPoly(Pt p, List<double[]> poly)
+        {
+            bool inside = false;
+            int n = poly.Count;
+            for (int i = 0, j = n - 1; i < n; j = i++)
+            {
+                double xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
+                if (((yi > p.Y) != (yj > p.Y)) &&
+                    (p.X < (xj - xi) * (p.Y - yi) / (yj - yi + 1e-12) + xi))
+                    inside = !inside;
+            }
+            return inside;
         }
 
         static bool AutoCroise(List<Pt> a)

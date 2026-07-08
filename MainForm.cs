@@ -39,6 +39,7 @@ namespace SimulateurPliage
         DataGridView dgSeg, dgSeq;
         SectionPanel view;
         PupitrePanel pupitre;
+        DeveloppePanel developpe;
         TrackBar tb;
         Label lblStep, lblAlert;
         RichTextBox rtSeq;
@@ -67,7 +68,7 @@ namespace SimulateurPliage
             {
                 cfg.PoinconHauteur = curPoin.Hauteur; cfg.PoinconAngleDeg = curPoin.AngleDeg;
                 cfg.CorpsLg = curPoin.CorpsLg;
-                cfg.ColRetrait = curPoin.ColRetrait; cfg.ColHauteur = curPoin.ColHauteur;
+                // ColRetrait/ColHauteur retires : le col de cygne est desormais dans le contour du poincon.
             }
             if (curMat != null) cfg.BlocLargeur = curMat.BlocLargeur;
         }
@@ -167,24 +168,46 @@ namespace SimulateurPliage
             lblStep = new Label { Left = 335, Top = 14, Width = 420, ForeColor = CAccent, Font = new Font("Segoe UI", 10, FontStyle.Bold) };
             ctrl.Controls.Add(lblStep);
 
-            var vbar = new FlowLayoutPanel { Dock = DockStyle.Right, Width = 190, BackColor = CBack, Padding = new Padding(0, 9, 8, 0) };
+            var vbar = new FlowLayoutPanel { Dock = DockStyle.Right, Width = 292, BackColor = CBack, Padding = new Padding(0, 9, 8, 0) };
             ctrl.Controls.Add(vbar);
             var bSec = Btn("Section", 84, () => ShowView(0)); bSec.Height = 34;
+            var bDev = Btn("Développé", 92, () => ShowView(2)); bDev.Height = 34;
             var bPup = Btn("Pupitre", 84, () => ShowView(1)); bPup.Height = 34;
-            vbar.Controls.Add(bSec); vbar.Controls.Add(bPup);
+            vbar.Controls.Add(bSec); vbar.Controls.Add(bDev); vbar.Controls.Add(bPup);
 
             view = new SectionPanel(cfg) { Dock = DockStyle.Fill, BackColor = CBack };
             right.Controls.Add(view);
             pupitre = new PupitrePanel(cfg) { Dock = DockStyle.Fill, Visible = false };
             right.Controls.Add(pupitre);
+            developpe = new DeveloppePanel { Dock = DockStyle.Fill, Visible = false };
+            right.Controls.Add(developpe);
             view.BringToFront();
         }
 
         void ShowView(int mode)
         {
-            bool sec = mode == 0;
-            view.Visible = sec; pupitre.Visible = !sec;
-            if (sec) view.BringToFront(); else pupitre.BringToFront();
+            view.Visible = mode == 0;
+            pupitre.Visible = mode == 1;
+            developpe.Visible = mode == 2;
+            if (mode == 0) view.BringToFront();
+            else if (mode == 1) pupitre.BringToFront();
+            else developpe.BringToFront();
+        }
+
+        // Retournement par operation : le 1er pli fixe la face de reference ;
+        // des qu'un pli change de sens vs l'orientation courante -> retournement, et l'orientation bascule.
+        bool[] Retournements()
+        {
+            var f = new bool[piece.Sequence.Count];
+            if (piece.Sequence.Count == 0) return f;
+            Sens nat = piece.Sequence[0].Sens;
+            for (int i = 0; i < piece.Sequence.Count; i++)
+            {
+                if (i == 0) { f[i] = false; nat = piece.Sequence[0].Sens; continue; }
+                if (piece.Sequence[i].Sens == nat) f[i] = false;
+                else { f[i] = true; nat = piece.Sequence[i].Sens; }
+            }
+            return f;
         }
 
         // ---- helpers UI ----
@@ -404,6 +427,7 @@ namespace SimulateurPliage
             StepState st = FoldEngine.Build(piece, step, cfg, curPoin, curMat, cfg.Embase);
             view.SetState(st, piece, StepColor(step));
             if (pupitre != null) pupitre.SetData(piece, step, curPoin, curMat, cfg.Embase);
+            if (developpe != null) developpe.SetData(piece, step, Retournements());
             if (piece.Sequence.Count == 0)
             {
                 lblStep.Text = "Aucune opération";
@@ -443,14 +467,17 @@ namespace SimulateurPliage
         void BuildEnumeration()
         {
             rtSeq.Clear();
+            var flips = Retournements();
             for (int i = 0; i < piece.Sequence.Count; i++)
             {
                 var o = piece.Sequence[i];
                 var st = FoldEngine.Build(piece, i, cfg, curPoin, curMat, cfg.Embase);
                 double from = AngleBefore(i);
                 bool hit = st.Collisions.Count > 0;
+                bool flip = i < flips.Length && flips[i];
                 Color col = hit ? CRouge : (o.Reprise ? CVert : CBleu);
                 string etat = hit ? ("COLLISION: " + st.Collisions[0].Type) : (o.Reprise ? "reprise" : "direct");
+                if (flip) etat += "  ⟲ retourner";
                 string line = string.Format(CultureInfo.InvariantCulture,
                     "{0,2}.  Pli {1,-2}  {2,3:0}°→{3,3:0}°  {4,-4}  V{5,-2}  · butée {6,4:0}  · {7}\n",
                     i + 1, o.Bend + 1, from, o.AngleCible, (o.Sens == Sens.Haut ? "Haut" : "Bas"),

@@ -7,90 +7,135 @@ using System.Text.Json.Serialization;
 namespace SimulateurPliage
 {
     // ================================================================
-    //  Bibliotheque d'outils : poincons + matrices (mono-V ou multi-V)
-    //  + embases (porte-poincon / semelle). Editable via outils.json.
-    //  Cotes reelles connues pre-remplies ; le reste = A MESURER.
+    //  Bibliotheque d'outils. Le poincon est un CONTOUR EXACT (col de
+    //  cygne asymetrique, bec 10°/25°) en repere pointe : pointe=(0,0),
+    //  +Y vers le haut. Hauteur reglable : seul le fut droit s'etire.
     // ================================================================
 
     public sealed class Poincon
     {
         public string Nom = "Rolleri P.120.35.R3";
-        public double Hauteur      = 120;   // hauteur totale (fiche)
-        public double HauteurUtile = 90;    // pointe -> epaulement (fiche : "hauteur utile")
-        public double AngleDeg     = 35;    // angle de pointe (fiche)
-        public double R            = 3.0;   // rayon en pointe R3 (fiche)
-        public double CorpsLg      = 26;    // largeur du corps (fiche : 26/1.02")
-        public double EpaulementDuHaut = 30; // 120 - 90
+        public double Hauteur  = 120;   // hauteur totale REGLABLE (etire le fut droit)
+        public double AngleDeg = 35;    // bec total (avant 10° + arriere 25°)
+        public double R        = 3.0;   // pointe R3
+        public double CorpsLg  = 26;    // corps
 
-        // Poincon DROIT (Serie CLASSIC, type R1) : PAS de col de cygne.
-        public double ColRetrait = 0;
-        public double ColHauteur = 0;
+        const double HRef     = 120.0;  // hauteur de reference du contour ci-dessous
+        const double UtileRef = 90.0;   // hauteur utile de reference (pointe -> epaulement)
+        const double YStretch = 60.0;   // au-dessus : fut droit etire ; en-dessous : bec+col figes
 
-        // Profil du P.120.35.R3 : (hauteur depuis la pointe ; demi-largeur mm).
-        //  Lame ELANCEE : pointe 35° courte, col fin, corps 26.
-        //  Cotes VERROUILLEES par la fiche : pointe 35°, corps 26, utile 90, H 120, R3.
-        //  Les 2 points intermediaires (20;6.6) et (65;13) sont une lecture du plan
-        //  -> a remplacer par le releve du TRACEUR pour l'exactitude au dixieme.
-        public List<double[]> Profil = new()
+        // hauteur utile (pointe -> epaulement) : suit l'etirement du fut.
+        public double HauteurUtile => UtileRef + (Hauteur - HRef);
+
+        // Contour EXACT (repere pointe, +Y haut) — parse du trace vectoriel Rolleri :
+        //  bec avant 10° (droite) / arriere 25° (gauche), pointe R3 sur l'axe,
+        //  col de cygne + contre-pli echantillonnes, corps 26, queue 18.
+        public List<double[]> ContourPts = new()
         {
-            new[] {   0.0,  0.3 },   // pointe R3
-            new[] {  20.0,  6.6 },   // fin du cone 35° (pointe travaillante)
-            new[] {  65.0, 13.0 },   // col de lame elance -> corps 26 (13 = 26/2)
-            new[] {  90.0, 13.0 },   // corps droit jusqu'a la hauteur utile
-            new[] {  95.0,  9.0 },   // epaulement -> queue R1 (schematique)
-            new[] { 120.0,  9.0 },   // queue
+            new[] {   -7.000,  120.000 },
+            new[] {   11.000,  120.000 },
+            new[] {   11.000,  105.000 },
+            new[] {    7.000,  105.000 },
+            new[] {    7.000,   94.000 },
+            new[] {   11.000,   94.000 },
+            new[] {   11.000,   90.000 },
+            new[] {   11.000,   60.000 },
+            new[] {    9.464,   56.786 },
+            new[] {    8.079,   53.571 },
+            new[] {    6.843,   50.357 },
+            new[] {    5.757,   47.143 },
+            new[] {    4.821,   43.929 },
+            new[] {    4.036,   40.714 },
+            new[] {    3.400,   37.500 },
+            new[] {    2.914,   34.286 },
+            new[] {    2.579,   31.071 },
+            new[] {    2.393,   27.857 },
+            new[] {    2.357,   24.643 },
+            new[] {    2.471,   21.429 },
+            new[] {    2.736,   18.214 },
+            new[] {    3.150,   15.000 },
+            new[] {    0.521,    0.046 },
+            new[] {    0.435,    0.021 },
+            new[] {    0.347,    0.005 },
+            new[] {    0.259,   -0.002 },
+            new[] {    0.170,   -0.001 },
+            new[] {    0.081,    0.007 },
+            new[] {   -0.008,    0.023 },
+            new[] {   -0.096,    0.047 },
+            new[] {   -0.183,    0.078 },
+            new[] {   -0.267,    0.117 },
+            new[] {   -0.349,    0.163 },
+            new[] {   -0.427,    0.216 },
+            new[] {   -0.501,    0.276 },
+            new[] {   -1.268,    0.281 },
+            new[] {   -8.127,   15.000 },
+            new[] {   -8.356,   15.000 },
+            new[] {   -8.814,   18.214 },
+            new[] {   -9.273,   21.429 },
+            new[] {   -9.731,   24.643 },
+            new[] {  -10.189,   27.857 },
+            new[] {  -10.647,   31.071 },
+            new[] {  -11.105,   34.286 },
+            new[] {  -11.564,   37.500 },
+            new[] {  -12.022,   40.714 },
+            new[] {  -12.480,   43.929 },
+            new[] {  -12.938,   47.143 },
+            new[] {  -13.396,   50.357 },
+            new[] {  -13.854,   53.571 },
+            new[] {  -14.313,   56.786 },
+            new[] {  -14.771,   60.000 },
+            new[] {  -15.000,   90.000 },
+            new[] {   -7.000,   90.000 },
         };
 
-        // demi-largeur interpolee a la hauteur y (0 = pointe)
-        public double DemiLargeur(double y)
-        {
-            if (Profil == null || Profil.Count == 0) return CorpsLg / 2.0;
-            if (y <= Profil[0][0]) return Profil[0][1];
-            for (int i = 1; i < Profil.Count; i++)
-            {
-                if (y <= Profil[i][0])
-                {
-                    double y0 = Profil[i - 1][0], y1 = Profil[i][0];
-                    double x0 = Profil[i - 1][1], x1 = Profil[i][1];
-                    double t = (y1 - y0) > 1e-6 ? (y - y0) / (y1 - y0) : 0;
-                    return x0 + (x1 - x0) * t;
-                }
-            }
-            return Profil[Profil.Count - 1][1];
-        }
-
-        // Contour ferme du poincon (pointe en bas a l'origine, monte en +Y).
+        // Contour ferme, ETIRE a la hauteur courante (copie) — rendu ET collision.
         public List<double[]> Contour()
         {
-            double H = Hauteur;
-            var right = new List<double[]>();
-            for (double y = 0; y <= H + 0.001; y += 1.5) right.Add(new[] { DemiLargeur(y), y });
-            var c = new List<double[]>();
-            foreach (var p in right) c.Add(p);
-            for (int i = right.Count - 1; i >= 0; i--) c.Add(new[] { -right[i][0], right[i][1] });
+            double d = Hauteur - HRef;
+            var c = new List<double[]>(ContourPts.Count);
+            foreach (var p in ContourPts)
+                c.Add(new[] { p[0], p[1] >= YStretch ? p[1] + d : p[1] });
             return c;
+        }
+
+        // demi-largeur = max |x| a la hauteur y (sur le contour etire) — bornes / filtres.
+        public double DemiLargeur(double y)
+        {
+            var c = Contour(); int n = c.Count;
+            double best = 0.2; bool found = false;
+            for (int i = 0; i < n; i++)
+            {
+                var p1 = c[i]; var p2 = c[(i + 1) % n];
+                double y1 = p1[1], y2 = p2[1];
+                if ((y1 <= y && y <= y2) || (y2 <= y && y <= y1))
+                {
+                    double t = Math.Abs(y2 - y1) > 1e-9 ? (y - y1) / (y2 - y1) : 0;
+                    double x = p1[0] + (p2[0] - p1[0]) * t;
+                    best = Math.Max(best, Math.Abs(x)); found = true;
+                }
+            }
+            return found ? best : 0.2;
         }
 
         public override string ToString() => Nom;
     }
 
-    // Un V utilisable sur une matrice (une matrice multi-V en a plusieurs).
     public sealed class VForm
     {
-        public double V = 12;        // ouverture (mm)
-        public double AngleDeg = 45; // angle du V
-        public double R = 1.5;       // rayon interne
-        public double Profondeur = 0;// profondeur du V (0 = auto depuis V/angle)
+        public double V = 12;
+        public double AngleDeg = 45;
+        public double R = 1.5;
+        public double Profondeur = 0;
         public override string ToString() => $"V{V:0.#} · {AngleDeg:0}° · R{R:0.#}";
     }
 
     public sealed class Matrice
     {
         public string Nom = "2045 / 45°";
-        public double BlocLargeur = 60;  // largeur du bloc (mm)
-        public double Hauteur = 120;     // H (mm)
-        public bool   MultiV = false;    // matrice en croix / multi-vé
-        public List<VForm> Vs = new();   // ouvertures dispo
+        public double BlocLargeur = 60;
+        public double Hauteur = 120;
+        public bool   MultiV = false;
+        public List<VForm> Vs = new();
         public override string ToString() => Nom;
 
         public VForm VProche(double v)
@@ -101,18 +146,17 @@ namespace SimulateurPliage
         }
     }
 
-    // Embase qui relie l'outil au tablier (peut entrer en collision aussi).
     public sealed class Embase
     {
-        public double PortePoinconH = 60;   // A MESURER : hauteur porte-poincon
-        public double PortePoinconLg = 40;   // A MESURER : largeur porte-poincon
-        public double SemelleH = 60;         // A MESURER : hauteur semelle/porte-matrice
-        public double SemelleLg = 90;        // A MESURER : largeur semelle
+        public double PortePoinconH = 60;
+        public double PortePoinconLg = 40;
+        public double SemelleH = 60;
+        public double SemelleLg = 90;
     }
 
     public sealed class ToolLib
     {
-        public const int CURRENT_VERSION = 8;   // bump => regenere la biblio au prochain lancement
+        public const int CURRENT_VERSION = 11;   // bump => regenere (contour exact + hauteur)
         public int Version { get; set; } = 0;
         public List<Poincon> Poincons { get; set; } = new();
         public List<Matrice> Matrices { get; set; } = new();
@@ -139,7 +183,6 @@ namespace SimulateurPliage
                 {
                     var opt = new JsonSerializerOptions { IncludeFields = true };
                     var s = JsonSerializer.Deserialize<ToolLib>(File.ReadAllText(f), opt);
-                    // on ne reutilise le fichier QUE s'il est a jour (evite les biblios perimees)
                     if (s != null && s.Version >= CURRENT_VERSION && s.Matrices.Count > 0 && s.Poincons.Count > 0)
                         return s;
                 }
@@ -161,17 +204,13 @@ namespace SimulateurPliage
         public static ToolLib Defaults()
         {
             var lib = new ToolLib { Version = CURRENT_VERSION };
+            lib.Poincons.Add(new Poincon());   // Rolleri P.120.35.R3 (contour exact)
 
-            lib.Poincons.Add(new Poincon());   // Rolleri P.120.35.R3 par defaut
-
-            // 2035 : mono-V 35°, bloc 60, H 80/120
             lib.Matrices.Add(new Matrice
             {
                 Nom = "2035 / 35°", BlocLargeur = 60, Hauteur = 80, MultiV = false,
                 Vs = { new VForm { V = 8, AngleDeg = 35, R = 1.5 }, new VForm { V = 12, AngleDeg = 35, R = 2.0 } }
             });
-
-            // 2045 : mono-V 45°, bloc 60, H 80/120
             lib.Matrices.Add(new Matrice
             {
                 Nom = "2045 / 45°", BlocLargeur = 60, Hauteur = 120, MultiV = false,
@@ -184,8 +223,6 @@ namespace SimulateurPliage
                     new VForm { V = 25, AngleDeg = 45, R = 3.0 },
                 }
             });
-
-            // 2009 : multi-V en croix, bloc 60x60, 85/88°, R2 (grosses epaisseurs)
             lib.Matrices.Add(new Matrice
             {
                 Nom = "2009 (multi-V 85/88°)", BlocLargeur = 60, Hauteur = 60, MultiV = true,
@@ -196,7 +233,6 @@ namespace SimulateurPliage
                     new VForm { V = 16, AngleDeg = 88, R = 2.0, Profondeur = 16 },
                 }
             });
-
             return lib;
         }
     }
