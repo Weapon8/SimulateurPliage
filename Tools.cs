@@ -14,31 +14,31 @@ namespace SimulateurPliage
 
     public sealed class Poincon
     {
-        public string Nom = "1012 / A / 35°";
-        public double Hauteur = 120;      // 90 lame + 30 corps
-        public double AngleDeg = 35;      // pointe
-        public double R = 1.0;            // R1
-        public double CorpsLg = 26;       // corps (fiche : 26)
-        public double EpaulementDuHaut = 30; // epaulement a 30 mm du sommet
-        // creux/degagement pour le retour de bord (cote gorge)
-        public double ColRetrait = 4;     // A MESURER
-        public double ColHauteur = 20;    // A MESURER
-        // Profil ESTIME du 1012 : (hauteur depuis la pointe ; demi-largeur mm).
-        // La lame s'evase, se CREUSE (galbe concave ~ milieu) puis ressort vers l'epaule.
-        // -> c'est ce creux qui degage le retour de tole. A affiner au pied a coulisse.
-        // Profil type PROMECAM/EURAM col-de-cygne : pointe fine, leger creux (gooseneck)
-        // qui degage le retour, puis LONGUE partie quasi droite, epaulement, corps.
+        public string Nom = "Rolleri P.120.35.R3";
+        public double Hauteur      = 120;   // hauteur totale (fiche)
+        public double HauteurUtile = 90;    // pointe -> epaulement (fiche : "hauteur utile")
+        public double AngleDeg     = 35;    // angle de pointe (fiche)
+        public double R            = 3.0;   // rayon en pointe R3 (fiche)
+        public double CorpsLg      = 26;    // largeur du corps (fiche : 26/1.02")
+        public double EpaulementDuHaut = 30; // 120 - 90
+
+        // Poincon DROIT (Serie CLASSIC, type R1) : PAS de col de cygne.
+        public double ColRetrait = 0;
+        public double ColHauteur = 0;
+
+        // Profil du P.120.35.R3 : (hauteur depuis la pointe ; demi-largeur mm).
+        //  Lame ELANCEE : pointe 35° courte, col fin, corps 26.
+        //  Cotes VERROUILLEES par la fiche : pointe 35°, corps 26, utile 90, H 120, R3.
+        //  Les 2 points intermediaires (20;6.6) et (65;13) sont une lecture du plan
+        //  -> a remplacer par le releve du TRACEUR pour l'exactitude au dixieme.
         public List<double[]> Profil = new()
         {
-            new[] { 0.0,  1.0 },   // pointe R1
-            new[] { 7.0,  2.5 },   // sortie de pointe (35deg)
-            new[] { 16.0, 4.5 },   // montee
-            new[] { 28.0, 6.2 },   // epaule basse
-            new[] { 40.0, 5.6 },   // GOOSENECK : creux qui degage le retour
-            new[] { 52.0, 6.2 },   // remontee
-            new[] { 88.0, 6.6 },   // longue partie DROITE (plus haute)
-            new[] { 90.0, 13.0 },  // EPAULEMENT : saut au corps (26/2)
-            new[] { 120.0, 13.0 }, // corps jusqu'a la bride
+            new[] {   0.0,  0.3 },   // pointe R3
+            new[] {  20.0,  6.6 },   // fin du cone 35° (pointe travaillante)
+            new[] {  65.0, 13.0 },   // col de lame elance -> corps 26 (13 = 26/2)
+            new[] {  90.0, 13.0 },   // corps droit jusqu'a la hauteur utile
+            new[] {  95.0,  9.0 },   // epaulement -> queue R1 (schematique)
+            new[] { 120.0,  9.0 },   // queue
         };
 
         // demi-largeur interpolee a la hauteur y (0 = pointe)
@@ -60,15 +60,14 @@ namespace SimulateurPliage
         }
 
         // Contour ferme du poincon (pointe en bas a l'origine, monte en +Y).
-        // Points en (x,y) : cote droit de bas en haut, puis cote gauche de haut en bas.
         public List<double[]> Contour()
         {
             double H = Hauteur;
             var right = new List<double[]>();
             for (double y = 0; y <= H + 0.001; y += 1.5) right.Add(new[] { DemiLargeur(y), y });
             var c = new List<double[]>();
-            foreach (var p in right) c.Add(p);                       // droite, bas->haut
-            for (int i = right.Count - 1; i >= 0; i--) c.Add(new[] { -right[i][0], right[i][1] }); // gauche, haut->bas
+            foreach (var p in right) c.Add(p);
+            for (int i = right.Count - 1; i >= 0; i--) c.Add(new[] { -right[i][0], right[i][1] });
             return c;
         }
 
@@ -113,7 +112,7 @@ namespace SimulateurPliage
 
     public sealed class ToolLib
     {
-        public const int CURRENT_VERSION = 7;   // bump => regenere la biblio au prochain lancement
+        public const int CURRENT_VERSION = 8;   // bump => regenere la biblio au prochain lancement
         public int Version { get; set; } = 0;
         public List<Poincon> Poincons { get; set; } = new();
         public List<Matrice> Matrices { get; set; } = new();
@@ -163,7 +162,7 @@ namespace SimulateurPliage
         {
             var lib = new ToolLib { Version = CURRENT_VERSION };
 
-            lib.Poincons.Add(new Poincon());   // 1012 / A / 35° (Euram) par defaut
+            lib.Poincons.Add(new Poincon());   // Rolleri P.120.35.R3 par defaut
 
             // 2035 : mono-V 35°, bloc 60, H 80/120
             lib.Matrices.Add(new Matrice
