@@ -38,7 +38,7 @@ namespace SimulateurPliage
 
         public void SetTools(Matrice m, Poincon p, Embase e) { mat = m; poin = p; emb = e; Invalidate(); }
 
-        // Demi-largeur du poincon a la hauteur y (0 = pointe) — profil reel (Poincon.Profil).
+        // Demi-largeur du poincon a la hauteur y (0 = pointe) — profil reel.
         double PunchFaceX(double y)
         {
             if (poin == null) return FoldEngine.PoinconFaceX(y, cfg);
@@ -54,8 +54,11 @@ namespace SimulateurPliage
             g.Clear(BackColor);
             if (st == null || st.Op == null) { Center(g, "Ajoute des plis et une séquence"); return; }
 
-            double ep   = Math.Max(0.2, piece.Epaisseur);
-            double seat = ep / 2.0;   // la face basse du pan pose sur la matrice (y = 0)
+            double ep = Math.Max(0.2, piece.Epaisseur);
+
+            // assise calculee par FoldEngine : depend de l'angle du pli en cours.
+            // (a 180° -> ep/2 : la tole pose a plat ; a 90° -> ~0.29*ep ; en dessous, le pli plonge dans le V)
+            double seat = st.Seat;
 
             var vf = mat != null ? mat.VProche(st.Op.V) : new VForm { V = st.Op.V, AngleDeg = cfg.MatriceAngleDeg };
             double Vopen = vf.V;
@@ -68,7 +71,7 @@ namespace SimulateurPliage
             double semH = emb != null ? emb.SemelleH : 0, semW = emb != null ? emb.SemelleLg : 0;
             double ppH = emb != null ? emb.PortePoinconH : 0, ppW = emb != null ? emb.PortePoinconLg : 0;
 
-            // --- bornes monde pour cadrer (tole seatee, pointe poincon a y=ep) ---
+            // --- bornes monde pour cadrer ---
             double minX = -half, maxX = half, minY = -dieH, maxY = hLibre;
             void Acc(double x, double y) { if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y; }
             foreach (var q in st.BackChain) Acc(q.X, q.Y + seat);
@@ -110,7 +113,11 @@ namespace SimulateurPliage
             using (var b = new SolidBrush(CDie)) g.FillPolygon(b, die.ToArray());
             using (var pn = new Pen(Color.FromArgb(110, 120, 132), 1.4f)) g.DrawPolygon(pn, die.ToArray());
 
-            // --- poincon : CONTOUR REEL (col de cygne asymetrique), pointe posee a y=ep ---
+            // --- axe du poincon (= bissectrice du pli actif) ---
+            using (var pn = new Pen(Color.FromArgb(60, 70, 84), 1f) { DashStyle = DashStyle.DashDot })
+                g.DrawLine(pn, T(0, -vDepth), T(0, maxY));
+
+            // --- poincon : CONTOUR REEL, pointe posee a y=ep ---
             var punchC = poin != null ? poin.Contour() : null;
             if (punchC != null && punchC.Count >= 3)
             {
@@ -141,13 +148,18 @@ namespace SimulateurPliage
                 g.DrawString($"hauteur libre {hLibre:0}", f, new SolidBrush(CMuted), T(minX, hLibre).X + 4, T(minX, hLibre).Y - 16);
             }
 
-            // --- tole : ruban rempli d'epaisseur reelle, coins vifs (pli franc) ---
+            // --- tole ---
             bool hit = st.Collisions.Count > 0;
             DrawSheet(g, st, hit ? CRouge : activeCol, ep, seat);
 
             // sommet de pli actif
             var o = T(0, seat);
             using (var b = new SolidBrush(activeCol)) g.FillEllipse(b, o.X - 4, o.Y - 4, 8, 8);
+
+            // --- cotation angle du pli en cours ---
+            using (var f = new Font("Consolas", 9, FontStyle.Bold))
+                g.DrawString($"α = {st.AngleActif:0}°   ·   assise {seat:0.00} mm",
+                    f, new SolidBrush(hit ? CRouge : CMuted), o.X + 12, o.Y + 6);
 
             if (hit)
             {
@@ -163,13 +175,11 @@ namespace SimulateurPliage
         // ---------- tole en ruban (fibre neutre offsetee +/- ep/2, jointures mitrees) ----------
         void DrawSheet(Graphics g, StepState st, Color col, double ep, double seat)
         {
-            // chaine complete de la fibre neutre, assise sur la matrice
             var chain = new List<Pt>();
             foreach (var p in st.BackChain) chain.Add(new Pt(p.X, p.Y + seat));
             for (int i = 1; i < st.Forming.Count; i++) chain.Add(new Pt(st.Forming[i].X, st.Forming[i].Y + seat));
             if (chain.Count < 2) return;
 
-            // ruban a l'echelle (epaisseur reelle) — souvent fin, sert de "corps" de tole
             var outer = OffsetMiter(chain, +ep / 2.0);
             var inner = OffsetMiter(chain, -ep / 2.0);
             var poly = new List<PointF>(outer.Count + inner.Count);
@@ -177,17 +187,14 @@ namespace SimulateurPliage
             for (int i = inner.Count - 1; i >= 0; i--) poly.Add(T(inner[i]));
             using (var b = new SolidBrush(Color.FromArgb(150, col))) g.FillPolygon(b, poly.ToArray());
 
-            // trait porteur EPAIS le long de la fibre — toujours lisible (facon Cybelec)
             var line = new PointF[chain.Count];
             for (int i = 0; i < chain.Count; i++) line[i] = T(chain[i]);
             using (var pn = new Pen(col, 3.0f) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
                 g.DrawLines(pn, line);
-            // sommets de pli
             using (var b = new SolidBrush(col))
                 foreach (var p in line) g.FillEllipse(b, p.X - 2.4f, p.Y - 2.4f, 4.8f, 4.8f);
         }
 
-        // offset d'une polyligne d'une distance d (perpendiculaire gauche), coins mitres clampes
         static List<Pt> OffsetMiter(List<Pt> pts, double d)
         {
             int n = pts.Count;
@@ -205,7 +212,7 @@ namespace SimulateurPliage
                 else
                 {
                     var mm = NormV(n0x + n1x, n0y + n1y);
-                    double c = Math.Max(0.25, mm.X * n0x + mm.Y * n0y); // clamp anti-pic sur plis serres
+                    double c = Math.Max(0.25, mm.X * n0x + mm.Y * n0y);
                     mx = mm.X / c; my = mm.Y / c;
                 }
                 outp.Add(new Pt(p.X + mx * d, p.Y + my * d));
