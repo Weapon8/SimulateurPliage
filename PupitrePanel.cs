@@ -1,115 +1,239 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Drawing.Drawing2D;
 using System.Globalization;
 using System.Windows.Forms;
 
 namespace SimulateurPliage
 {
-    // Vue "pupitre" facon commande numerique Cybelec/Delem :
-    // tableau des plis avec angle, R (butee = cote interieure), L pan, V, sens.
+    // Vue "pupitre" facon commande numerique Cybelec/Delem, EDITABLE.
+    // Une ligne = une operation de pliage. La colonne R (butee) EST le pan cote butee :
+    // pans et plis sont la meme donnee, il n'y a plus de table de pans separee.
+    // La derniere ligne "FIN" porte le dernier pan (celui qui n'a pas de pli apres lui).
     public class PupitrePanel : Panel
     {
+        public event Action Edited;            // une cellule a ete validee -> MainForm recalcule
+        public event Action<int> StepPicked;   // l'operateur a clique une ligne
+
         readonly MachineConfig cfg;
         Piece piece;
-        int cur;
+        int cur = -1;
         Poincon poin;
         Matrice mat;
         Embase emb;
+        bool _load;
+
+        DataGridView dg;
+        Label lblTitle, lblFoot;
 
         static readonly Color CBg    = Color.FromArgb(12, 15, 20);
+        static readonly Color CRow   = Color.FromArgb(22, 27, 34);
+        static readonly Color CCurBg = Color.FromArgb(40, 30, 12);
         static readonly Color CHead  = Color.FromArgb(140, 150, 162);
         static readonly Color CGreen = Color.FromArgb(80, 230, 120);   // afficheur
         static readonly Color COrange= Color.FromArgb(255, 170, 60);
-        static readonly Color CRow   = Color.FromArgb(22, 27, 34);
-        static readonly Color CCurBg = Color.FromArgb(40, 30, 12);
         static readonly Color CRed   = Color.FromArgb(235, 90, 80);
-        static readonly Color CLine  = Color.FromArgb(40, 46, 55);
+        static readonly Color CGrey  = Color.FromArgb(50, 58, 68);
+        static readonly Color CFin   = Color.FromArgb(120, 130, 145);
 
-        public PupitrePanel(MachineConfig c) { cfg = c; DoubleBuffered = true; BackColor = CBg; }
-
-        public void SetData(Piece p, int step, Poincon pn, Matrice mt, Embase eb)
-        { piece = p; cur = step; poin = pn; mat = mt; emb = eb; Invalidate(); }
-
-        // colonnes : x de depart (proportion de la largeur)
-        static readonly (string h, float x, bool num)[] Cols =
+        public PupitrePanel(MachineConfig c)
         {
-            ("N°",    0.03f, false),
-            ("PLI",   0.12f, false),
-            ("ANGLE", 0.24f, true),
-            ("R butée (int.)", 0.42f, true),
-            ("L pan", 0.64f, true),
-            ("V",     0.80f, true),
-            ("SENS",  0.89f, false),
-        };
-
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.Clear(CBg);
-            if (piece == null || piece.Sequence.Count == 0) { Msg(g, "Aucune opération"); return; }
-
-            using var fHead = new Font("Consolas", 10.5f, FontStyle.Bold);
-            using var fCell = new Font("Consolas", 15f, FontStyle.Bold);
-            using var fSmall= new Font("Consolas", 10f, FontStyle.Bold);
-
-            int W = Width, pad = 14;
-            int top = 14, rowH = 42, headH = 30;
-
-            // titre
-            using (var ft = new Font("Segoe UI", 11, FontStyle.Bold))
-                g.DrawString("PUPITRE — séquence de pliage", ft, new SolidBrush(COrange), pad, top);
-            top += 30;
-
-            // entete
-            foreach (var c in Cols)
-                g.DrawString(c.h, fHead, new SolidBrush(CHead), c.x * W, top);
-            top += headH;
-            using (var pn = new Pen(CLine, 1.4f)) g.DrawLine(pn, pad, top - 4, W - pad, top - 4);
-
-            for (int i = 0; i < piece.Sequence.Count; i++)
-            {
-                var o = piece.Sequence[i];
-                var st = FoldEngine.Build(piece, i, cfg, poin, mat, emb);
-                bool hit = st.Collisions.Count > 0;
-                bool active = i == cur;
-
-                int ry = top + i * rowH;
-                var rowRect = new Rectangle(pad, ry, W - 2 * pad, rowH - 6);
-                using (var b = new SolidBrush(active ? CCurBg : CRow)) g.FillRectangle(b, rowRect);
-                if (active) using (var pn = new Pen(COrange, 1.6f)) g.DrawRectangle(pn, rowRect);
-
-                Color val = hit ? CRed : (active ? COrange : CGreen);
-
-                double from = AngleBefore(i);
-                double rInt = ButeeInterieure(o.Bend);
-                double lPan = (o.Bend + 1 < piece.Segments.Count) ? piece.Segments[o.Bend + 1] : 0;
-
-                float cy = ry + 8;
-                Cell(g, fCell, val, Cols[0].x * W, cy, (i + 1).ToString("00"));
-                Cell(g, fCell, val, Cols[1].x * W, cy, "P" + (o.Bend + 1));
-                Cell(g, fCell, val, Cols[2].x * W, cy, o.AngleCible.ToString("0", CultureInfo.InvariantCulture) + "\u00b0");
-                Cell(g, fCell, val, Cols[3].x * W, cy, rInt.ToString("0.0", CultureInfo.InvariantCulture));
-                Cell(g, fCell, val, Cols[4].x * W, cy, lPan.ToString("0.0", CultureInfo.InvariantCulture));
-                Cell(g, fCell, val, Cols[5].x * W, cy, ((int)o.V).ToString());
-                Cell(g, fSmall, val, Cols[6].x * W, cy + 3, (o.Sens == Sens.Haut ? "HAUT" : "BAS") + (o.Reprise ? " *" : ""));
-
-                // 2e ligne info : from->to + etat
-                string sub = $"{from:0}\u00b0\u2192{o.AngleCible:0}\u00b0" + (o.Reprise ? "  reprise" : "  direct") + (hit ? "   ! " + st.Collisions[0].Type : "");
-                g.DrawString(sub, fSmall, new SolidBrush(hit ? CRed : CHead), Cols[2].x * W, ry + 24);
-            }
-
-            // pied : rappel cotes
-            using var fp = new Font("Consolas", 9.5f);
-            string ep = piece != null ? piece.Epaisseur.ToString("0.##", CultureInfo.InvariantCulture) : "?";
-            string mode = (piece != null && piece.CotesExterieures) ? "extérieures (R converti en int.)" : "intérieures";
-            g.DrawString($"ép {ep} mm  ·  saisie {mode}  ·  R = cote intérieure lue à la butée arrière",
-                fp, new SolidBrush(CHead), pad, Height - 24);
+            cfg = c;
+            DoubleBuffered = true;
+            BackColor = CBg;
+            Padding = new Padding(14, 12, 14, 10);
+            BuildGrid();
         }
 
-        void Cell(Graphics g, Font f, Color c, float x, float y, string t)
-            => g.DrawString(t, f, new SolidBrush(c), x, y);
+        void BuildGrid()
+        {
+            lblTitle = new Label
+            {
+                Dock = DockStyle.Top, Height = 30, Text = "PUPITRE — séquence de pliage",
+                ForeColor = COrange, BackColor = CBg, Font = new Font("Segoe UI", 11, FontStyle.Bold)
+            };
+
+            lblFoot = new Label
+            {
+                Dock = DockStyle.Bottom, Height = 26, ForeColor = CHead, BackColor = CBg,
+                Font = new Font("Consolas", 9.5f), Padding = new Padding(2, 6, 0, 0)
+            };
+
+            dg = new DataGridView
+            {
+                Dock = DockStyle.Fill,
+                BackgroundColor = CBg, BorderStyle = BorderStyle.None, GridColor = CGrey,
+                RowHeadersVisible = false, AllowUserToAddRows = false, AllowUserToDeleteRows = false,
+                AllowUserToResizeRows = false, AllowUserToResizeColumns = false,
+                EnableHeadersVisualStyles = false,
+                SelectionMode = DataGridViewSelectionMode.CellSelect,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                Font = new Font("Consolas", 14f, FontStyle.Bold),
+                ColumnHeadersHeight = 34,
+                ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing
+            };
+            dg.RowTemplate.Height = 46;
+            dg.DefaultCellStyle.BackColor = CRow;
+            dg.DefaultCellStyle.ForeColor = CGreen;
+            dg.DefaultCellStyle.SelectionBackColor = Color.FromArgb(34, 42, 52);
+            dg.DefaultCellStyle.SelectionForeColor = CGreen;
+            dg.DefaultCellStyle.Padding = new Padding(6, 0, 6, 0);
+            dg.ColumnHeadersDefaultCellStyle.BackColor = CBg;
+            dg.ColumnHeadersDefaultCellStyle.ForeColor = CHead;
+            dg.ColumnHeadersDefaultCellStyle.Font = new Font("Consolas", 10f, FontStyle.Bold);
+
+            Fill(dg, new DataGridViewTextBoxColumn { Name = "ord", HeaderText = "N°", ReadOnly = true }, 8);
+            Fill(dg, new DataGridViewTextBoxColumn { Name = "pli", HeaderText = "PLI" }, 10);
+            Fill(dg, new DataGridViewTextBoxColumn { Name = "r",   HeaderText = "R butée (int.)" }, 24);
+            Fill(dg, new DataGridViewTextBoxColumn { Name = "ang", HeaderText = "ANGLE" }, 16);
+            Fill(dg, new DataGridViewComboBoxColumn { Name = "sens", HeaderText = "SENS", FlatStyle = FlatStyle.Flat }, 16);
+            Fill(dg, new DataGridViewComboBoxColumn { Name = "v",  HeaderText = "V", FlatStyle = FlatStyle.Flat }, 12);
+            Fill(dg, new DataGridViewCheckBoxColumn { Name = "rep", HeaderText = "REPRISE" }, 14);
+
+            ((DataGridViewComboBoxColumn)dg.Columns["sens"]).Items.AddRange("Haut", "Bas");
+
+            dg.CellEndEdit += (s, e) => { if (!_load) { ReadBack(); Edited?.Invoke(); } };
+            dg.CurrentCellDirtyStateChanged += (s, e) => { if (dg.IsCurrentCellDirty) dg.CommitEdit(DataGridViewDataErrorContexts.Commit); };
+            dg.DataError += (s, e) => { e.ThrowException = false; };
+            dg.SelectionChanged += (s, e) =>
+            {
+                if (_load || dg.CurrentCell == null || piece == null) return;
+                int r = dg.CurrentCell.RowIndex;
+                if (r >= 0 && r < piece.Sequence.Count && r != cur) StepPicked?.Invoke(r);
+            };
+
+            Controls.Add(dg);
+            Controls.Add(lblFoot);
+            Controls.Add(lblTitle);
+            dg.BringToFront();
+        }
+
+        static void Fill(DataGridView g, DataGridViewColumn c, int weight)
+        {
+            c.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+            c.FillWeight = weight;
+            g.Columns.Add(c);
+        }
+
+        public void SetData(Piece p, int step, Poincon pn, Matrice mt, Embase eb)
+        {
+            piece = p; cur = step; poin = pn; mat = mt; emb = eb;
+            Reload();
+        }
+
+        string[] VStrings()
+        {
+            var l = new List<string>();
+            if (mat != null) foreach (var vf in mat.Vs) l.Add(((int)vf.V).ToString());
+            if (l.Count == 0) l.Add("16");
+            return l.ToArray();
+        }
+
+        void Reload()
+        {
+            if (piece == null) return;
+            _load = true;
+
+            // memoriser la cellule courante pour ne pas perdre le focus a chaque frappe
+            int cr = dg.CurrentCell?.RowIndex ?? -1, cc = dg.CurrentCell?.ColumnIndex ?? -1;
+
+            var vcol = (DataGridViewComboBoxColumn)dg.Columns["v"];
+            vcol.Items.Clear();
+            foreach (var s in VStrings()) vcol.Items.Add(s);
+            string v0 = VStrings()[0];
+
+            dg.Rows.Clear();
+            int n = piece.Sequence.Count;
+
+            for (int i = 0; i < n; i++)
+            {
+                var o = piece.Sequence[i];
+                string vv = ((int)o.V).ToString();
+                if (!vcol.Items.Contains(vv)) vv = v0;
+                dg.Rows.Add(
+                    (i + 1).ToString("00"),
+                    "P" + (o.Bend + 1),
+                    piece.ButeeInt(o.Bend).ToString("0.0", CultureInfo.InvariantCulture),
+                    o.AngleCible.ToString("0", CultureInfo.InvariantCulture) + "\u00b0",
+                    o.Sens == Sens.Haut ? "Haut" : "Bas",
+                    vv,
+                    o.Reprise);
+            }
+
+            // ligne FIN : le dernier pan, sans pli apres lui
+            int last = piece.NbPlis;
+            int fr = dg.Rows.Add("—", "fin", piece.ButeeInt(last).ToString("0.0", CultureInfo.InvariantCulture), "", null, null, false);
+            var frow = dg.Rows[fr];
+            foreach (DataGridViewCell c in frow.Cells) c.ReadOnly = true;
+            frow.Cells["r"].ReadOnly = false;
+            frow.DefaultCellStyle.ForeColor = CFin;
+            frow.DefaultCellStyle.SelectionForeColor = CFin;
+            frow.DefaultCellStyle.BackColor = Color.FromArgb(18, 22, 28);
+
+            // couleurs par ligne : rouge collision, orange etape courante
+            for (int i = 0; i < n; i++)
+            {
+                var st = FoldEngine.Build(piece, i, cfg, poin, mat, emb);
+                bool hit = st.Collisions.Count > 0;
+                var row = dg.Rows[i];
+                Color fg = hit ? CRed : (i == cur ? COrange : CGreen);
+                row.DefaultCellStyle.ForeColor = fg;
+                row.DefaultCellStyle.SelectionForeColor = fg;
+                row.DefaultCellStyle.BackColor = (i == cur) ? CCurBg : CRow;
+                row.DefaultCellStyle.SelectionBackColor = (i == cur) ? CCurBg : Color.FromArgb(34, 42, 52);
+
+                double from = AngleBefore(i);
+                string tip = $"{from:0}°→{piece.Sequence[i].AngleCible:0}°  " +
+                             (piece.Sequence[i].Reprise ? "reprise" : "direct") +
+                             (hit ? "   ! " + st.Collisions[0].Type : "");
+                foreach (DataGridViewCell c in row.Cells) c.ToolTipText = tip;
+            }
+
+            if (cr >= 0 && cr < dg.Rows.Count && cc >= 0 && cc < dg.Columns.Count)
+                dg.CurrentCell = dg.Rows[cr].Cells[cc];
+            else if (cur >= 0 && cur < dg.Rows.Count)
+                dg.CurrentCell = dg.Rows[cur].Cells["r"];
+
+            string ep = piece.Epaisseur.ToString("0.##", CultureInfo.InvariantCulture);
+            string mode = piece.CotesExterieures ? "extérieures (R converti en int.)" : "intérieures";
+            lblFoot.Text = $"ép {ep} mm  ·  saisie {mode}  ·  R = cote intérieure lue à la butée arrière  ·  ligne « fin » = dernier pan";
+
+            _load = false;
+        }
+
+        // relit toute la grille dans la Piece (source unique de verite)
+        void ReadBack()
+        {
+            if (piece == null) return;
+            int n = piece.Sequence.Count;
+            var list = new List<Operation>(n);
+
+            for (int i = 0; i < dg.Rows.Count; i++)
+            {
+                var row = dg.Rows[i];
+
+                if (i == n)   // ligne FIN
+                {
+                    piece.SetButeeInt(piece.NbPlis, ParseD(row.Cells["r"].Value, piece.ButeeInt(piece.NbPlis)));
+                    continue;
+                }
+
+                int pli = (int)ParseD(row.Cells["pli"].Value, i + 1);
+                int bend = Math.Max(0, Math.Min(Math.Max(0, piece.NbPlis - 1), pli - 1));
+
+                piece.SetButeeInt(bend, ParseD(row.Cells["r"].Value, piece.ButeeInt(bend)));
+
+                list.Add(new Operation
+                {
+                    Bend = bend,
+                    AngleCible = Math.Max(1, Math.Min(179, ParseD(row.Cells["ang"].Value, 90))),
+                    Sens = (row.Cells["sens"].Value as string) == "Bas" ? Sens.Bas : Sens.Haut,
+                    V = ParseD(row.Cells["v"].Value, 16),
+                    Reprise = row.Cells["rep"].Value is bool b && b
+                });
+            }
+            piece.Sequence = list;
+        }
 
         double AngleBefore(int s)
         {
@@ -120,21 +244,12 @@ namespace SimulateurPliage
             return a;
         }
 
-        // R = cote INTERIEURE du pan cote butee jusqu'a la ligne de pli.
-        // Butees interieures : si saisie en exterieures, on retranche l'epaisseur au pli.
-        double ButeeInterieure(int bend)
+        // "P2" -> 2 ; "90°" -> 90 ; "40,5" -> 40.5
+        static double ParseD(object o, double def)
         {
-            if (piece == null || bend < 0 || bend >= piece.Segments.Count) return 0;
-            double L = piece.Segments[bend];
-            if (piece.CotesExterieures) L -= piece.Epaisseur;   // ext -> int au pli
-            return Math.Max(0, L);
-        }
-
-        void Msg(Graphics g, string t)
-        {
-            using var f = new Font("Segoe UI", 11);
-            var sz = g.MeasureString(t, f);
-            g.DrawString(t, f, new SolidBrush(CHead), (Width - sz.Width) / 2, (Height - sz.Height) / 2);
+            if (o == null) return def;
+            string t = o.ToString().Trim().Replace(',', '.').Replace("\u00b0", "").Replace("P", "").Replace("p", "");
+            return double.TryParse(t, NumberStyles.Any, CultureInfo.InvariantCulture, out var v) ? v : def;
         }
     }
 }

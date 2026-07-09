@@ -21,6 +21,7 @@ namespace SimulateurPliage
         static readonly Color CBleu   = Color.FromArgb(63, 131, 235);   // pli direct
         static readonly Color CVert   = Color.FromArgb(63, 185, 80);    // pli avec reprise
         static readonly Color CRouge  = Color.FromArgb(229, 83, 75);    // collision
+        static readonly Color CFin    = Color.FromArgb(120, 130, 145);  // ligne "fin"
         static readonly Color CLockBg = Color.FromArgb(31, 36, 44);
 
         readonly MachineConfig cfg = new();
@@ -33,7 +34,7 @@ namespace SimulateurPliage
 
         NumericUpDown nNb, nEp;
         ComboBox cbCotes, cbPoin, cbMat;
-        DataGridView dgSeg, dgSeq;
+        DataGridView dgSeq;
         SectionPanel view;
         PupitrePanel pupitre;
         DeveloppePanel developpe;
@@ -42,7 +43,6 @@ namespace SimulateurPliage
         RichTextBox rtSeq;
         Panel right;
 
-        // ---- reglages machine : verrou + confirmation par ligne ----
         TableLayoutPanel left;
         Panel machContent;
         Button btnMachHead;
@@ -51,10 +51,10 @@ namespace SimulateurPliage
         readonly List<MField> mfields = new();
         bool machOpen = false;
 
-        const int PANW   = 316;   // largeur utile du panneau gauche
-        const int COLW   = 352;   // largeur de la colonne gauche
-        const int MACH_H = 400;   // hauteur de l'encadre reglages deplie
-        const int MACH_C = 40;    // hauteur replie
+        const int PANW   = 316;
+        const int COLW   = 352;
+        const int MACH_H = 400;
+        const int MACH_C = 40;
 
         sealed class MField
         {
@@ -68,17 +68,17 @@ namespace SimulateurPliage
 
         public MainForm()
         {
-            // ATTENTION : AutoScaleDimensions attend la taille MOYENNE D'UN CARACTERE
-            // de la police du formulaire (Segoe UI 9pt @96dpi = 7 x 15 px), PAS un DPI.
-            // Et ca doit etre pose AVANT Width/Height, sinon la taille est remise a l'echelle.
+            // AutoScaleDimensions = taille MOYENNE D'UN CARACTERE de la police du formulaire
+            // (Segoe UI 9pt @96dpi = 7 x 15 px), PAS un DPI. A poser AVANT Width/Height.
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             Font = new Font("Segoe UI", 9);
 
-            Text = "Simulateur de pliage — collisions outillage · TolTem   [v0.9]";
+            Text = "Simulateur de pliage — collisions outillage · TolTem   [v1.0]";
             Width = 1360; Height = 900; StartPosition = FormStartPosition.CenterScreen;
             MinimumSize = new Size(1100, 720);
             BackColor = CBack; ForeColor = CText;
+
             lib = ToolLib.Load();
             curPoin = lib.Poincons[0];
             curMat = lib.Matrices.Find(m => m.Nom.Contains("2045")) ?? lib.Matrices[0];
@@ -87,6 +87,7 @@ namespace SimulateurPliage
             view.SetTools(curMat, curPoin, cfg.Embase);
             ReloadGridsFromPiece();
             Recompute();
+            ShowView(1);   // pupitre en premier : c'est l'ecran de saisie
         }
 
         void SyncCfgFromTools()
@@ -108,11 +109,6 @@ namespace SimulateurPliage
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             Controls.Add(root);
 
-            // colonne gauche : 4 rangees
-            //   0 : entete (outillage / piece / pans)   -> absolue
-            //   1 : titre sequence                       -> absolue
-            //   2 : grille sequence + barre outils       -> etirable
-            //   3 : encadre reglages machine             -> absolue, repliable
             left = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, BackColor = CPanel, Margin = new Padding(0) };
             left.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             left.RowStyles.Add(new RowStyle(SizeType.Absolute, 10));
@@ -133,19 +129,13 @@ namespace SimulateurPliage
             cbPoin = Combo(head, "Poinçon", PoinNames(), 0, ref y,
                 i => { curPoin = lib.Poincons[i]; SyncCfgFromTools(); PushMachineFields(); view.SetTools(curMat, curPoin, cfg.Embase); Recompute(); });
             cbMat = Combo(head, "Matrice", MatNames(), Math.Max(0, lib.Matrices.IndexOf(curMat)), ref y,
-                i => { curMat = lib.Matrices[i]; SyncCfgFromTools(); PushMachineFields(); view.SetTools(curMat, curPoin, cfg.Embase); RebuildVColumn(); Recompute(); });
+                i => { curMat = lib.Matrices[i]; SyncCfgFromTools(); PushMachineFields(); view.SetTools(curMat, curPoin, cfg.Embase); ReloadGridsFromPiece(); Recompute(); });
 
             y = Title(head, "PIÈCE", y);
-            nNb = Num(head, "Nombre de plis", 2, 0, 12, 1, 0, ref y, v => SetNbPlis((int)v));
-            nEp = Num(head, "Épaisseur (mm)", 1.0, 0.4, 5, 0.1, 2, ref y, v => { piece.Epaisseur = v; Recompute(); });
-            cbCotes = Combo(head, "Cotes", new[] { "intérieures", "extérieures" }, 0, ref y, i => { piece.CotesExterieures = i == 1; Recompute(); });
-
-            y = Title(head, "PANS (longueurs mm)", y);
-            dgSeg = Grid(head, 92, ref y);
-            dgSeg.Columns.Add(TextCol("pan", "Pan", 56, true));
-            dgSeg.Columns.Add(TextCol("lg", "Longueur", 150, false));
-            dgSeg.Columns["lg"].AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
-            dgSeg.CellEndEdit += (s, e) => { if (!_load) { ReadSeg(); Recompute(); } };
+            nNb = Num(head, "Nombre de plis", piece.NbPlis, 0, 12, 1, 0, ref y, v => SetNbPlis((int)v));
+            nEp = Num(head, "Épaisseur (mm)", 1.0, 0.4, 5, 0.1, 2, ref y, v => { piece.Epaisseur = v; ReloadGridsFromPiece(); Recompute(); });
+            cbCotes = Combo(head, "Cotes", new[] { "intérieures", "extérieures" }, 0, ref y,
+                i => { piece.CotesExterieures = i == 1; ReloadGridsFromPiece(); Recompute(); });
 
             left.RowStyles[0] = new RowStyle(SizeType.Absolute, y + 6);
 
@@ -153,7 +143,7 @@ namespace SimulateurPliage
             var seqHead = new Panel { Dock = DockStyle.Fill, BackColor = CPanel, Margin = new Padding(0) };
             left.Controls.Add(seqHead, 0, 1);
             seqHead.Controls.Add(new Panel { Left = 10, Top = 4, Width = PANW, Height = 1, BackColor = CSep });
-            seqHead.Controls.Add(new Label { Text = "SÉQUENCE DE PLIAGE", Left = 12, Top = 12, Width = PANW,
+            seqHead.Controls.Add(new Label { Text = "SÉQUENCE DE PLIAGE   ·   R butée = pan", Left = 12, Top = 12, Width = PANW,
                 ForeColor = CAccent, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
 
             // ---------------- rangee 2 : grille sequence (etirable) ----------------
@@ -165,14 +155,14 @@ namespace SimulateurPliage
             barSeq.Controls.Add(Btn("–", 34, DelOp));
             barSeq.Controls.Add(Btn("↑", 34, () => MoveOp(-1)));
             barSeq.Controls.Add(Btn("↓", 34, () => MoveOp(+1)));
-            barSeq.Controls.Add(Btn("Exemple U", 92, () => { piece = Piece.Demo(); ReloadGridsFromPiece(); step = 0; Recompute(); }));
+            barSeq.Controls.Add(Btn("Exemple U", 92, () => { piece = Piece.Demo(); step = 0; ReloadGridsFromPiece(); Recompute(); }));
             seqBox.Controls.Add(barSeq);
 
             dgSeq = new DataGridView
             {
                 Dock = DockStyle.Fill, BackgroundColor = CInput, BorderStyle = BorderStyle.None, GridColor = CGrey,
-                RowHeadersVisible = false, AllowUserToAddRows = false, AllowUserToResizeRows = false,
-                AllowUserToResizeColumns = false, EnableHeadersVisualStyles = false,
+                RowHeadersVisible = false, AllowUserToAddRows = false, AllowUserToDeleteRows = false,
+                AllowUserToResizeRows = false, AllowUserToResizeColumns = false, EnableHeadersVisualStyles = false,
                 SelectionMode = DataGridViewSelectionMode.CellSelect,
                 AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
                 Font = new Font("Segoe UI", 9.5f)
@@ -187,14 +177,15 @@ namespace SimulateurPliage
             dgSeq.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
             dgSeq.ColumnHeadersHeight = 28;
 
-            AddFillCol(dgSeq, TextCol("ord", "N°", 30, true), 12);
-            AddFillCol(dgSeq, TextCol("pli", "Pli", 38, false), 14);
-            AddFillCol(dgSeq, TextCol("ang", "Angle°", 54, false), 20);
-            AddFillCol(dgSeq, ComboCol("sens", "Sens", new[] { "Haut", "Bas" }, 58), 22);
-            AddFillCol(dgSeq, ComboCol("v", "V", VStrings(), 46), 16);
-            AddFillCol(dgSeq, new DataGridViewCheckBoxColumn { Name = "rep", HeaderText = "Reprise" }, 20);
+            AddFillCol(dgSeq, new DataGridViewTextBoxColumn { Name = "ord", HeaderText = "N°", ReadOnly = true }, 10);
+            AddFillCol(dgSeq, new DataGridViewTextBoxColumn { Name = "pli", HeaderText = "Pli" }, 11);
+            AddFillCol(dgSeq, new DataGridViewTextBoxColumn { Name = "r",   HeaderText = "R butée" }, 20);
+            AddFillCol(dgSeq, new DataGridViewTextBoxColumn { Name = "ang", HeaderText = "Angle°" }, 16);
+            AddFillCol(dgSeq, ComboCol("sens", "Sens", new[] { "Haut", "Bas" }), 17);
+            AddFillCol(dgSeq, ComboCol("v", "V", VStrings()), 12);
+            AddFillCol(dgSeq, new DataGridViewCheckBoxColumn { Name = "rep", HeaderText = "Rep." }, 14);
 
-            dgSeq.CellEndEdit += (s, e) => { if (!_load) { ReadSeq(); Recompute(); } };
+            dgSeq.CellEndEdit += (s, e) => { if (!_load) { ReadSeq(); ReloadGridsFromPiece(); Recompute(); } };
             dgSeq.CurrentCellDirtyStateChanged += (s, e) => { if (dgSeq.IsCurrentCellDirty) dgSeq.CommitEdit(DataGridViewDataErrorContexts.Commit); };
             dgSeq.DataError += (s, e) => { e.ThrowException = false; };
             dgSeq.SelectionChanged += (s, e) =>
@@ -224,7 +215,7 @@ namespace SimulateurPliage
             btnMachHead.Click += (s, e) => ToggleMach();
             machHead.Controls.Add(btnMachHead);
 
-            lblDirty = new Label { Left = 200, Top = 12, Width = 60, ForeColor = CAccent, Font = new Font("Segoe UI", 8.5f, FontStyle.Bold) };
+            lblDirty = new Label { Left = 200, Top = 12, Width = 80, ForeColor = CAccent, Font = new Font("Segoe UI", 8.5f, FontStyle.Bold) };
             machHead.Controls.Add(lblDirty);
 
             chkLock = new CheckBox { Text = "🔒", Left = 296, Top = 9, Width = 44, Height = 24, Checked = true,
@@ -232,7 +223,7 @@ namespace SimulateurPliage
                 TextAlign = ContentAlignment.MiddleCenter };
             chkLock.FlatAppearance.BorderColor = CGrey;
             chkLock.CheckedChanged += (s, e) => ApplyLock();
-            var tip = new ToolTip(); tip.SetToolTip(chkLock, "Verrouiller / déverrouiller les réglages machine");
+            var tipLock = new ToolTip(); tipLock.SetToolTip(chkLock, "Verrouiller / déverrouiller les réglages machine");
             machHead.Controls.Add(chkLock);
 
             machContent = new Panel { Dock = DockStyle.Fill, BackColor = CLockBg, AutoScroll = true, Visible = false, Padding = new Padding(0, 2, 0, 8) };
@@ -267,7 +258,7 @@ namespace SimulateurPliage
 
             ApplyLock();
 
-            // ---------------- droite : vue + controles ----------------
+            // ---------------- droite : vues + controles ----------------
             var bottom = new Panel { Dock = DockStyle.Bottom, Height = 190, BackColor = CPanel };
             right.Controls.Add(bottom);
             lblAlert = new Label { Dock = DockStyle.Top, Height = 30, ForeColor = CText, BackColor = CPanel,
@@ -290,18 +281,23 @@ namespace SimulateurPliage
 
             var vbar = new FlowLayoutPanel { Dock = DockStyle.Right, Width = 292, BackColor = CBack, Padding = new Padding(0, 9, 8, 0) };
             ctrl.Controls.Add(vbar);
+            var bPup = Btn("Pupitre", 84, () => ShowView(1)); bPup.Height = 34;
             var bSec = Btn("Section", 84, () => ShowView(0)); bSec.Height = 34;
             var bDev = Btn("Développé", 92, () => ShowView(2)); bDev.Height = 34;
-            var bPup = Btn("Pupitre", 84, () => ShowView(1)); bPup.Height = 34;
-            vbar.Controls.Add(bSec); vbar.Controls.Add(bDev); vbar.Controls.Add(bPup);
+            vbar.Controls.Add(bPup); vbar.Controls.Add(bSec); vbar.Controls.Add(bDev);
 
-            view = new SectionPanel(cfg) { Dock = DockStyle.Fill, BackColor = CBack };
+            view = new SectionPanel(cfg) { Dock = DockStyle.Fill, BackColor = CBack, Visible = false };
             right.Controls.Add(view);
-            pupitre = new PupitrePanel(cfg) { Dock = DockStyle.Fill, Visible = false };
-            right.Controls.Add(pupitre);
             developpe = new DeveloppePanel { Dock = DockStyle.Fill, Visible = false };
             right.Controls.Add(developpe);
-            view.BringToFront();
+            pupitre = new PupitrePanel(cfg) { Dock = DockStyle.Fill, Visible = true };
+            right.Controls.Add(pupitre);
+
+            // ---- synchro temps reel : le pupitre ecrit dans la MEME Piece ----
+            pupitre.Edited += () => { ReloadGridsFromPiece(); Recompute(); };
+            pupitre.StepPicked += s => SetStep(s);
+
+            pupitre.BringToFront();
         }
 
         // ---------------- reglages machine : verrou / confirmation ----------------
@@ -363,7 +359,8 @@ namespace SimulateurPliage
         void ApplyAllFields()
         {
             bool any = false;
-            foreach (var f in mfields) if (f.Dirty) { f.Applied = (double)f.Num.Value; f.Apply(f.Applied); f.Ok.Visible = f.Undo.Visible = false; f.Num.ForeColor = CText; any = true; }
+            foreach (var f in mfields)
+                if (f.Dirty) { f.Applied = (double)f.Num.Value; f.Apply(f.Applied); f.Ok.Visible = f.Undo.Visible = false; f.Num.ForeColor = CText; any = true; }
             UpdateDirty();
             if (any) Recompute();
         }
@@ -373,10 +370,9 @@ namespace SimulateurPliage
             foreach (var f in mfields) if (f.Dirty) Revert(f);
         }
 
-        // recharge les champs depuis cfg (changement d'outil) sans passer par la confirmation
         void PushMachineFields()
         {
-            if (mfields.Count == 0) return;
+            if (mfields.Count < 2) return;
             _load = true;
             mfields[0].Applied = cfg.PoinconHauteur;  mfields[0].Num.Value = Clamp(mfields[0].Num, cfg.PoinconHauteur);
             mfields[1].Applied = cfg.PoinconAngleDeg; mfields[1].Num.Value = Clamp(mfields[1].Num, cfg.PoinconAngleDeg);
@@ -434,7 +430,8 @@ namespace SimulateurPliage
         {
             var l = new Label { Text = lab, Left = 12, Top = y + 4, Width = 150, ForeColor = CText };
             var n = new NumericUpDown { Left = 166, Top = y, Width = 140, Minimum = (decimal)min, Maximum = (decimal)max,
-                Increment = (decimal)inc, DecimalPlaces = dec, Value = (decimal)v, BackColor = CInput, ForeColor = CText, BorderStyle = BorderStyle.FixedSingle };
+                Increment = (decimal)inc, DecimalPlaces = dec, Value = (decimal)Math.Min(max, Math.Max(min, v)),
+                BackColor = CInput, ForeColor = CText, BorderStyle = BorderStyle.FixedSingle };
             n.ValueChanged += (s, e) => { if (!_load) onCh((double)n.Value); };
             p.Controls.Add(l); p.Controls.Add(n); y += 30; return n;
         }
@@ -453,8 +450,11 @@ namespace SimulateurPliage
 
             var f = new MField { Lab = l, Num = n, Ok = ok, Undo = un, Applied = v, Apply = apply };
             n.ValueChanged += (s, e) => { if (!_load) MarkDirty(f); };
-            n.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter && f.Dirty) { Confirm(f); e.SuppressKeyPress = true; }
-                                     else if (e.KeyCode == Keys.Escape && f.Dirty) { Revert(f); e.SuppressKeyPress = true; } };
+            n.KeyDown += (s, e) =>
+            {
+                if (e.KeyCode == Keys.Enter && f.Dirty) { Confirm(f); e.SuppressKeyPress = true; }
+                else if (e.KeyCode == Keys.Escape && f.Dirty) { Revert(f); e.SuppressKeyPress = true; }
+            };
             ok.Click += (s, e) => Confirm(f);
             un.Click += (s, e) => Revert(f);
 
@@ -477,20 +477,6 @@ namespace SimulateurPliage
             p.Controls.Add(l); p.Controls.Add(c); y += 30; return c;
         }
 
-        DataGridView Grid(Panel p, int h, ref int y)
-        {
-            var g = new DataGridView { Left = 12, Top = y, Width = PANW - 4, Height = h, BackgroundColor = CInput,
-                BorderStyle = BorderStyle.None, GridColor = CGrey, RowHeadersVisible = false, AllowUserToAddRows = false,
-                AllowUserToResizeRows = false, EnableHeadersVisualStyles = false, AllowUserToResizeColumns = false,
-                SelectionMode = DataGridViewSelectionMode.CellSelect };
-            g.DefaultCellStyle.BackColor = CInput; g.DefaultCellStyle.ForeColor = CText;
-            g.DefaultCellStyle.SelectionBackColor = CBtn; g.DefaultCellStyle.SelectionForeColor = CText;
-            g.ColumnHeadersDefaultCellStyle.BackColor = CPanel; g.ColumnHeadersDefaultCellStyle.ForeColor = CMuted;
-            g.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI", 8.5f, FontStyle.Bold);
-            g.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing; g.ColumnHeadersHeight = 26;
-            p.Controls.Add(g); y += h + 8; return g;
-        }
-
         static void AddFillCol(DataGridView g, DataGridViewColumn c, int weight)
         {
             c.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
@@ -498,12 +484,9 @@ namespace SimulateurPliage
             g.Columns.Add(c);
         }
 
-        DataGridViewTextBoxColumn TextCol(string name, string head, int w, bool ro)
-            => new DataGridViewTextBoxColumn { Name = name, HeaderText = head, Width = w, ReadOnly = ro };
-
-        DataGridViewComboBoxColumn ComboCol(string name, string head, string[] items, int w)
+        DataGridViewComboBoxColumn ComboCol(string name, string head, string[] items)
         {
-            var c = new DataGridViewComboBoxColumn { Name = name, HeaderText = head, Width = w, FlatStyle = FlatStyle.Flat };
+            var c = new DataGridViewComboBoxColumn { Name = name, HeaderText = head, FlatStyle = FlatStyle.Flat };
             c.Items.AddRange(items); return c;
         }
 
@@ -527,71 +510,86 @@ namespace SimulateurPliage
             return l.ToArray();
         }
 
-        void RebuildVColumn()
-        {
-            if (dgSeq == null || curMat == null) return;
-            var col = dgSeq.Columns["v"] as DataGridViewComboBoxColumn;
-            if (col == null) return;
-            _load = true;
-            col.Items.Clear();
-            foreach (var s in VStrings()) col.Items.Add(s);
-            string first = VStrings()[0];
-            foreach (DataGridViewRow r in dgSeq.Rows)
-            {
-                var cell = r.Cells["v"];
-                if (cell.Value == null || !col.Items.Contains(cell.Value.ToString())) cell.Value = first;
-            }
-            _load = false;
-        }
-
         void SetNbPlis(int nb)
         {
             int segs = Math.Max(1, nb + 1);
             while (piece.Segments.Count < segs) piece.Segments.Add(100);
             while (piece.Segments.Count > segs) piece.Segments.RemoveAt(piece.Segments.Count - 1);
             piece.Sequence.RemoveAll(o => o.Bend >= piece.NbPlis);
+
+            // une operation par pli au minimum : sinon un pan devient inatteignable a la saisie
+            for (int b = 0; b < piece.NbPlis; b++)
+            {
+                bool found = false;
+                foreach (var o in piece.Sequence) if (o.Bend == b) { found = true; break; }
+                if (!found) piece.Sequence.Add(new Operation { Bend = b, AngleCible = 90, Sens = Sens.Haut, V = ParseD(VStrings()[0], 16) });
+            }
+            piece.Sequence.Sort((a, b) => a.Bend.CompareTo(b.Bend));
+
             ReloadGridsFromPiece();
             Recompute();
         }
 
+        // remplit la grille gauche depuis la Piece. Derniere ligne = "fin" (dernier pan).
         void ReloadGridsFromPiece()
         {
             _load = true;
-            dgSeg.Rows.Clear();
-            for (int i = 0; i < piece.Segments.Count; i++)
-                dgSeg.Rows.Add((i + 1).ToString(), piece.Segments[i].ToString("0.#", CultureInfo.InvariantCulture));
+            int cr = dgSeq.CurrentCell?.RowIndex ?? -1, cc = dgSeq.CurrentCell?.ColumnIndex ?? -1;
+
+            var vcol = (DataGridViewComboBoxColumn)dgSeq.Columns["v"];
+            vcol.Items.Clear();
+            foreach (var s in VStrings()) vcol.Items.Add(s);
+            string v0 = VStrings()[0];
 
             dgSeq.Rows.Clear();
             for (int i = 0; i < piece.Sequence.Count; i++)
             {
                 var o = piece.Sequence[i];
+                string vv = ((int)o.V).ToString();
+                if (!vcol.Items.Contains(vv)) vv = v0;
                 dgSeq.Rows.Add((i + 1).ToString(), (o.Bend + 1).ToString(),
+                    piece.ButeeInt(o.Bend).ToString("0.#", CultureInfo.InvariantCulture),
                     o.AngleCible.ToString("0.#", CultureInfo.InvariantCulture),
-                    o.Sens == Sens.Haut ? "Haut" : "Bas",
-                    ((int)o.V).ToString(), o.Reprise);
+                    o.Sens == Sens.Haut ? "Haut" : "Bas", vv, o.Reprise);
             }
+
+            int fr = dgSeq.Rows.Add("—", "fin",
+                piece.ButeeInt(piece.NbPlis).ToString("0.#", CultureInfo.InvariantCulture), "", null, null, false);
+            var frow = dgSeq.Rows[fr];
+            foreach (DataGridViewCell c in frow.Cells) c.ReadOnly = true;
+            frow.Cells["r"].ReadOnly = false;
+            frow.DefaultCellStyle.ForeColor = CFin;
+            frow.DefaultCellStyle.SelectionForeColor = CFin;
+            frow.DefaultCellStyle.BackColor = CLockBg;
+
             if (nNb != null) nNb.Value = Clamp(nNb, piece.NbPlis);
+
+            if (cr >= 0 && cr < dgSeq.Rows.Count && cc >= 0 && cc < dgSeq.Columns.Count)
+                dgSeq.CurrentCell = dgSeq.Rows[cr].Cells[cc];
+
             _load = false;
-            RebuildVColumn();
         }
 
-        void ReadSeg()
-        {
-            for (int i = 0; i < dgSeg.Rows.Count && i < piece.Segments.Count; i++)
-                piece.Segments[i] = ParseD(dgSeg.Rows[i].Cells["lg"].Value, piece.Segments[i]);
-        }
-
+        // relit la grille gauche dans la Piece (source unique de verite)
         void ReadSeq()
         {
-            var list = new List<Operation>();
-            foreach (DataGridViewRow row in dgSeq.Rows)
+            int n = piece.Sequence.Count;
+            var list = new List<Operation>(n);
+            for (int i = 0; i < dgSeq.Rows.Count; i++)
             {
-                if (row.IsNewRow) continue;
-                int pli = (int)ParseD(row.Cells["pli"].Value, 1);
+                var row = dgSeq.Rows[i];
+                if (i == n)   // ligne "fin" : le dernier pan
+                {
+                    piece.SetButeeInt(piece.NbPlis, ParseD(row.Cells["r"].Value, piece.ButeeInt(piece.NbPlis)));
+                    continue;
+                }
+                int pli = (int)ParseD(row.Cells["pli"].Value, i + 1);
+                int bend = Math.Max(0, Math.Min(Math.Max(0, piece.NbPlis - 1), pli - 1));
+                piece.SetButeeInt(bend, ParseD(row.Cells["r"].Value, piece.ButeeInt(bend)));
                 list.Add(new Operation
                 {
-                    Bend = Math.Max(0, Math.Min(piece.NbPlis - 1, pli - 1)),
-                    AngleCible = ParseD(row.Cells["ang"].Value, 90),
+                    Bend = bend,
+                    AngleCible = Math.Max(1, Math.Min(179, ParseD(row.Cells["ang"].Value, 90))),
                     Sens = (row.Cells["sens"].Value as string) == "Bas" ? Sens.Bas : Sens.Haut,
                     V = ParseD(row.Cells["v"].Value, 16),
                     Reprise = row.Cells["rep"].Value is bool b && b
@@ -603,7 +601,8 @@ namespace SimulateurPliage
         void AddOp()
         {
             ReadSeq();
-            piece.Sequence.Add(new Operation { Bend = 0, AngleCible = 90, Sens = Sens.Haut, V = 16 });
+            int bend = piece.NbPlis > 0 ? piece.NbPlis - 1 : 0;
+            piece.Sequence.Add(new Operation { Bend = bend, AngleCible = 90, Sens = Sens.Haut, V = ParseD(VStrings()[0], 16) });
             ReloadGridsFromPiece(); step = piece.Sequence.Count - 1; Recompute();
         }
 
@@ -612,7 +611,7 @@ namespace SimulateurPliage
             ReadSeq();
             int idx = dgSeq.CurrentCell != null ? dgSeq.CurrentCell.RowIndex : piece.Sequence.Count - 1;
             if (idx >= 0 && idx < piece.Sequence.Count) piece.Sequence.RemoveAt(idx);
-            ReloadGridsFromPiece(); step = Math.Min(step, piece.Sequence.Count - 1); Recompute();
+            ReloadGridsFromPiece(); step = Math.Max(0, Math.Min(step, piece.Sequence.Count - 1)); Recompute();
         }
 
         void MoveOp(int dir)
@@ -620,7 +619,7 @@ namespace SimulateurPliage
             ReadSeq();
             int idx = dgSeq.CurrentCell != null ? dgSeq.CurrentCell.RowIndex : -1;
             int j = idx + dir;
-            if (idx < 0 || j < 0 || j >= piece.Sequence.Count) return;
+            if (idx < 0 || idx >= piece.Sequence.Count || j < 0 || j >= piece.Sequence.Count) return;
             (piece.Sequence[idx], piece.Sequence[j]) = (piece.Sequence[j], piece.Sequence[idx]);
             ReloadGridsFromPiece();
             if (j < dgSeq.Rows.Count) dgSeq.CurrentCell = dgSeq.Rows[j].Cells["pli"];
@@ -630,7 +629,7 @@ namespace SimulateurPliage
         static double ParseD(object o, double def)
         {
             if (o == null) return def;
-            string t = o.ToString().Trim().Replace(',', '.');
+            string t = o.ToString().Trim().Replace(',', '.').Replace("\u00b0", "");
             return double.TryParse(t, NumberStyles.Any, CultureInfo.InvariantCulture, out var v) ? v : def;
         }
 
@@ -702,7 +701,7 @@ namespace SimulateurPliage
         {
             rtSeq.Clear();
             var flips = Retournements();
-            _load = true;
+            bool prev = _load; _load = true;
             for (int i = 0; i < piece.Sequence.Count; i++)
             {
                 var o = piece.Sequence[i];
@@ -712,7 +711,6 @@ namespace SimulateurPliage
                 bool flip = i < flips.Length && flips[i];
                 Color col = hit ? CRouge : (o.Reprise ? CVert : CBleu);
 
-                // teinte la ligne correspondante dans la grille — lisible d'un coup d'oeil
                 if (i < dgSeq.Rows.Count)
                 {
                     dgSeq.Rows[i].DefaultCellStyle.ForeColor = col;
@@ -730,7 +728,7 @@ namespace SimulateurPliage
                 rtSeq.SelectionColor = (i == step) ? CAccent : col;
                 rtSeq.AppendText(line);
             }
-            _load = false;
+            _load = prev;
         }
     }
 }

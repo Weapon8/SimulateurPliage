@@ -59,13 +59,29 @@ namespace SimulateurPliage
 
         public int NbPlis => Math.Max(0, Segments.Count - 1);
 
+        // ---- cote butee = pan cote butee, TOUJOURS lue/ecrite en INTERIEUR ----
+        // (c'est ce qu'affiche une CN Cybelec/Delem : R = cote interieure jusqu'a la ligne de pli)
+        public double ButeeInt(int i)
+        {
+            if (i < 0 || i >= Segments.Count) return 0;
+            double L = Segments[i];
+            if (CotesExterieures) L -= Epaisseur;
+            return Math.Max(0, L);
+        }
+
+        public void SetButeeInt(int i, double r)
+        {
+            if (i < 0 || i >= Segments.Count) return;
+            r = Math.Max(0, r);
+            Segments[i] = CotesExterieures ? r + Epaisseur : r;
+        }
+
         public static Piece Demo()
         {
-            // 4 plis => 5 pans. On part TOUJOURS de la tole a plat (180deg) :
-            // les angles valent 180 par defaut, chaque operation les amene a la cible.
+            // U simple : 3 pans, 2 plis. On part TOUJOURS de la tole a plat (180deg).
             var p = new Piece { Epaisseur = 1.0 };
-            p.Segments.AddRange(new double[] { 40, 80, 120, 80, 40 });   // 4 plis
-            for (int b = 0; b < 4; b++)
+            p.Segments.AddRange(new double[] { 40, 120, 40 });
+            for (int b = 0; b < 2; b++)
                 p.Sequence.Add(new Operation { Bend = b, AngleCible = 90, Sens = Sens.Haut, V = 16 });
             return p;
         }
