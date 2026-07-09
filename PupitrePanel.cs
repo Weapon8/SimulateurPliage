@@ -144,6 +144,7 @@ namespace SimulateurPliage
                 if (_load || e.RowIndex < 0) return;
                 ReadBack();
                 RecalcHits();
+                UpdateFoot();
                 Edited?.Invoke();       // MainForm rafraichit l'AUTRE grille, pas celle-ci
             };
 
@@ -247,6 +248,16 @@ namespace SimulateurPliage
             dg.Invalidate();
         }
 
+        void UpdateFoot()
+        {
+            if (piece == null) return;
+            double dev = 0; foreach (var v in piece.Segments) dev += v;
+            string ep = piece.Epaisseur.ToString("0.##", CultureInfo.InvariantCulture);
+            string smode = piece.CotesExterieures ? "extérieures" : "intérieures";
+            lblFoot.Text = $"L développé {dev:0.#} mm  ·  {piece.Segments.Count} pans  ·  ép {ep} mm  ·  cotes {smode}  ·  " +
+                           "R = cote intérieure lue à la butée arrière  ·  ✕ supprime la passe (et le pli si c'est la dernière)";
+        }
+
         void RecalcHits()
         {
             if (piece == null) { hits = new bool[0]; return; }
@@ -307,9 +318,7 @@ namespace SimulateurPliage
                 if (cr >= 0 && cr < dg.Rows.Count && cc >= 0 && cc < dg.Columns.Count)
                     dg.CurrentCell = dg.Rows[cr].Cells[cc];
 
-                string ep = piece.Epaisseur.ToString("0.##", CultureInfo.InvariantCulture);
-                string smode = piece.CotesExterieures ? "extérieures (R converti en int.)" : "intérieures";
-                lblFoot.Text = $"ép {ep} mm  ·  saisie {smode}  ·  R = cote intérieure lue à la butée arrière  ·  ✕ supprime la passe (et le pli si c'est la dernière)";
+                UpdateFoot();
             }
             finally { dg.EditMode = mode; _load = false; }
 

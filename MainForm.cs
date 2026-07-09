@@ -41,7 +41,7 @@ namespace SimulateurPliage
         PupitrePanel pupitre;
         DeveloppePanel developpe;
         TrackBar tb;
-        Label lblStep, lblAlert;
+        Label lblStep, lblAlert, lblDev;
         RichTextBox rtSeq;
         Panel right;
 
@@ -58,6 +58,7 @@ namespace SimulateurPliage
         const int MACH_H  = 520;
         const int MACH_C  = 40;
         const int MAXPLIS = 12;
+        const double PAN_MIN = 4.0;    // pan minimal exploitable (mm)
 
         int FinRow => piece.Sequence.Count;
 
@@ -147,6 +148,10 @@ namespace SimulateurPliage
             nEp = Num(head, "Épaisseur (mm)", 1.0, 0.4, 5, 0.1, 2, ref y, v => { piece.Epaisseur = v; Recompute(); });
             cbCotes = Combo(head, "Cotes", new[] { "intérieures", "extérieures" }, 0, ref y,
                 i => { piece.CotesExterieures = i == 1; Recompute(); });
+
+            lblDev = new Label { Left = 12, Top = y + 2, Width = PANW, Height = 18,
+                ForeColor = CMuted, Font = new Font("Consolas", 9f, FontStyle.Bold) };
+            head.Controls.Add(lblDev); y += 26;
 
             left.RowStyles[0] = new RowStyle(SizeType.Absolute, y + 6);
 
@@ -606,11 +611,50 @@ namespace SimulateurPliage
             return l.ToArray();
         }
 
-        // ajoute une LIGNE DE PLI (donc un pan de plus) + son operation
+        double LDeveloppe
+        {
+            get { double s = 0; foreach (var v in piece.Segments) s += v; return s; }
+        }
+
+        // Ajouter un pli ne CREE PAS de matiere : on scinde le dernier pan en deux.
+        // Le developpe est une donnee du client (le flan sort de la poinçonneuse a cette
+        // cote), il ne doit jamais bouger tout seul.
+        bool SplitLastPan()
+        {
+            if (piece.NbPlis >= MAXPLIS) return false;
+            int last = piece.Segments.Count - 1;
+            double L = piece.Segments[last];
+            if (L < 2 * PAN_MIN) return false;
+            double a = Math.Round(L / 2.0, 1);
+            piece.Segments[last] = a;
+            piece.Segments.Add(Math.Round(L - a, 1));
+            return true;
+        }
+
+        // Symetrique : retirer un pli refusionne les deux derniers pans.
+        bool MergeLastPan()
+        {
+            int n = piece.Segments.Count;
+            if (n < 2) return false;
+            piece.Segments[n - 2] += piece.Segments[n - 1];
+            piece.Segments.RemoveAt(n - 1);
+            return true;
+        }
+
         void AddBend()
         {
             if (piece.NbPlis >= MAXPLIS) return;
-            SetNbPlis(piece.NbPlis + 1);
+            if (!SplitLastPan())
+            {
+                MessageBox.Show(this,
+                    $"Dernier pan : {piece.Segments[piece.Segments.Count - 1]:0.#} mm — trop court pour être scindé.\n\n" +
+                    "Un pli ne crée pas de matière : il partage un pan existant. " +
+                    "Le développé reste celui du flan.",
+                    "Ajouter un pli", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            int bend = piece.NbPlis - 1;
+            piece.Sequence.Add(new Operation { Bend = bend, AngleCible = 90, Sens = Sens.Haut, V = ParseD(VStrings()[0], 16) });
             step = piece.Sequence.Count - 1;
             Recompute();
         }
@@ -618,9 +662,8 @@ namespace SimulateurPliage
         void SetNbPlis(int nb)
         {
             nb = Math.Max(0, Math.Min(MAXPLIS, nb));
-            int segs = Math.Max(1, nb + 1);
-            while (piece.Segments.Count < segs) piece.Segments.Add(100);
-            while (piece.Segments.Count > segs) piece.Segments.RemoveAt(piece.Segments.Count - 1);
+            while (piece.NbPlis < nb && SplitLastPan()) { }
+            while (piece.NbPlis > nb && MergeLastPan()) { }
             piece.Sequence.RemoveAll(o => o.Bend >= piece.NbPlis);
 
             // une operation par pli au minimum : sinon un pan devient inatteignable a la saisie.
@@ -707,6 +750,8 @@ namespace SimulateurPliage
                 dgSeq.Rows[fr].Cells["del"] = new DataGridViewTextBoxCell { Value = "" };
 
                 if (nNb != null) nNb.Value = Clamp(nNb, piece.NbPlis);
+                if (lblDev != null)
+                    lblDev.Text = $"L développé  {LDeveloppe:0.#} mm   ·   {piece.Segments.Count} pans";
 
                 if (cr >= 0 && cr < dgSeq.Rows.Count && cc >= 0 && cc < dgSeq.Columns.Count)
                     dgSeq.CurrentCell = dgSeq.Rows[cr].Cells[cc];
