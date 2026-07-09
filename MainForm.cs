@@ -68,11 +68,17 @@ namespace SimulateurPliage
 
         public MainForm()
         {
+            // ATTENTION : AutoScaleDimensions attend la taille MOYENNE D'UN CARACTERE
+            // de la police du formulaire (Segoe UI 9pt @96dpi = 7 x 15 px), PAS un DPI.
+            // Et ca doit etre pose AVANT Width/Height, sinon la taille est remise a l'echelle.
+            AutoScaleDimensions = new SizeF(7F, 15F);
+            AutoScaleMode = AutoScaleMode.Font;
+            Font = new Font("Segoe UI", 9);
+
             Text = "Simulateur de pliage — collisions outillage · TolTem   [v0.9]";
             Width = 1360; Height = 900; StartPosition = FormStartPosition.CenterScreen;
-            BackColor = CBack; ForeColor = CText; Font = new Font("Segoe UI", 9);
-            AutoScaleDimensions = new SizeF(96F, 96F);
-            AutoScaleMode = AutoScaleMode.Font;
+            MinimumSize = new Size(1100, 720);
+            BackColor = CBack; ForeColor = CText;
             lib = ToolLib.Load();
             curPoin = lib.Poincons[0];
             curMat = lib.Matrices.Find(m => m.Nom.Contains("2045")) ?? lib.Matrices[0];
