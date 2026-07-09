@@ -54,7 +54,7 @@ namespace SimulateurPliage
 
         const int PANW    = 316;
         const int COLW    = 352;
-        const int MACH_H  = 400;
+        const int MACH_H  = 520;
         const int MACH_C  = 40;
         const int MAXPLIS = 12;
 
@@ -91,6 +91,13 @@ namespace SimulateurPliage
             view.SetTools(curMat, curPoin, cfg.Embase);
             Recompute();
             ShowView(1);   // pupitre en premier : c'est l'ecran de saisie
+        }
+
+        // sort de la pile d'evenements d'une grille avant de la retoucher
+        void Defer(Action a)
+        {
+            if (IsHandleCreated) BeginInvoke(a);
+            else a();
         }
 
         void SyncCfgFromTools()
@@ -153,13 +160,13 @@ namespace SimulateurPliage
             var seqBox = new Panel { Dock = DockStyle.Fill, BackColor = CPanel, Padding = new Padding(12, 0, 12, 6), Margin = new Padding(0) };
             left.Controls.Add(seqBox, 0, 2);
 
-            var barSeq = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 36, BackColor = CPanel };
-            barSeq.Controls.Add(Btn("+ pli", 62, AddBend));
-            barSeq.Controls.Add(Btn("+ étape", 70, AddOp));
-            barSeq.Controls.Add(Btn("↑", 32, () => MoveOpAt(dgSeq.CurrentCell?.RowIndex ?? -1, -1)));
-            barSeq.Controls.Add(Btn("↓", 32, () => MoveOpAt(dgSeq.CurrentCell?.RowIndex ?? -1, +1)));
-            barSeq.Controls.Add(Btn("Trier", 50, SortByBend));
-            barSeq.Controls.Add(Btn("Exemple U", 76, () => { piece = Piece.Demo(); step = 0; Recompute(); }));
+            var barSeq = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 44, BackColor = CPanel };
+            barSeq.Controls.Add(Btn("+ pli", 64, AddBend, 34));
+            barSeq.Controls.Add(Btn("+ étape", 74, AddOp, 34));
+            barSeq.Controls.Add(Btn("↑", 36, () => MoveOpAt(dgSeq.CurrentCell?.RowIndex ?? -1, -1), 34));
+            barSeq.Controls.Add(Btn("↓", 36, () => MoveOpAt(dgSeq.CurrentCell?.RowIndex ?? -1, +1), 34));
+            barSeq.Controls.Add(Btn("Trier", 54, SortByBend, 34));
+            barSeq.Controls.Add(Btn("Exemple U", 84, () => { piece = Piece.Demo(); step = 0; Recompute(); }, 34));
             seqBox.Controls.Add(barSeq);
 
             dgSeq = new DataGridView
@@ -232,12 +239,14 @@ namespace SimulateurPliage
 
             dgSeq.DataError += (s, e) => { e.ThrowException = false; };
 
+            // DIFFERE : recolorier avant que WinForms ait ouvert l'editeur de cellule le tue.
             dgSeq.SelectionChanged += (s, e) =>
             {
                 if (_load || dgSeq.CurrentCell == null) return;
                 int r = dgSeq.CurrentCell.RowIndex;
-                if (r >= 0 && r < piece.Sequence.Count && r != step) SetStep(r);
+                if (r >= 0 && r < piece.Sequence.Count && r != step) Defer(() => SetStep(r));
             };
+            dgSeq.CellEndEdit += (s, e) => { if (!_load) StyleSeqRows(); };
             seqBox.Controls.Add(dgSeq);
             dgSeq.BringToFront();
 
@@ -275,29 +284,29 @@ namespace SimulateurPliage
             machContent.BringToFront();
 
             int my = 2;
-            my = SubTitle(machContent, "Poinçon", my);
+            my = SubTitle(machContent, "POINÇON", my);
             MNum(machContent, "Hauteur", cfg.PoinconHauteur, ref my, v => { cfg.PoinconHauteur = v; if (curPoin != null) curPoin.Hauteur = v; view.SetTools(curMat, curPoin, cfg.Embase); });
             MNum(machContent, "Angle pointe (°)", cfg.PoinconAngleDeg, ref my, v => cfg.PoinconAngleDeg = v);
             MNum(machContent, "Largeur pointe", cfg.PoinconPointeLg, ref my, v => cfg.PoinconPointeLg = v);
 
-            my = SubTitle(machContent, "Col de cygne  (secours — profil vectoriel prioritaire)", my);
+            my = SubTitle(machContent, "COL DE CYGNE   (secours)", my);
             MNum(machContent, "Retrait", cfg.ColRetrait, ref my, v => cfg.ColRetrait = v);
             MNum(machContent, "Hauteur", cfg.ColHauteur, ref my, v => cfg.ColHauteur = v);
 
-            my = SubTitle(machContent, "Butée & tablier", my);
+            my = SubTitle(machContent, "BUTÉE & TABLIER", my);
             MNum(machContent, "Tablier déport", cfg.TablierDeport, ref my, v => cfg.TablierDeport = v);
             MNum(machContent, "Hauteur libre (repère)", cfg.HauteurLibre, ref my, v => cfg.HauteurLibre = v);
             MNum(machContent, "Butée arrière max", cfg.ButeeMax, ref my, v => cfg.ButeeMax = v);
 
-            my = SubTitle(machContent, "Embases", my);
+            my = SubTitle(machContent, "EMBASES", my);
             MNum(machContent, "Porte-poinçon hauteur", cfg.Embase.PortePoinconH, ref my, v => cfg.Embase.PortePoinconH = v);
             MNum(machContent, "Porte-poinçon largeur", cfg.Embase.PortePoinconLg, ref my, v => cfg.Embase.PortePoinconLg = v);
             MNum(machContent, "Semelle hauteur", cfg.Embase.SemelleH, ref my, v => cfg.Embase.SemelleH = v);
             MNum(machContent, "Semelle largeur", cfg.Embase.SemelleLg, ref my, v => cfg.Embase.SemelleLg = v);
 
-            var barMach = new FlowLayoutPanel { Left = 8, Top = my + 6, Width = PANW, Height = 34, BackColor = CLockBg };
-            barMach.Controls.Add(Btn("Tout appliquer", 106, ApplyAllFields));
-            barMach.Controls.Add(Btn("Tout annuler", 100, RevertAllFields));
+            var barMach = new FlowLayoutPanel { Left = 10, Top = my + 12, Width = PANW - 20, Height = 42, BackColor = CLockBg };
+            barMach.Controls.Add(Btn("Tout appliquer", 112, ApplyAllFields, 32));
+            barMach.Controls.Add(Btn("Tout annuler", 104, RevertAllFields, 32));
             machContent.Controls.Add(barMach);
 
             ApplyLock();
@@ -488,8 +497,10 @@ namespace SimulateurPliage
 
         int SubTitle(Panel p, string t, int y)
         {
-            p.Controls.Add(new Label { Text = t, Left = 10, Top = y + 6, Width = PANW, ForeColor = CMuted, Font = new Font("Segoe UI", 8.5f, FontStyle.Bold) });
-            return y + 24;
+            p.Controls.Add(new Label { Text = t, Left = 10, Top = y + 10, Width = PANW - 20, Height = 18,
+                ForeColor = CAccent, Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
+            p.Controls.Add(new Panel { Left = 10, Top = y + 31, Width = PANW - 28, Height = 1, BackColor = CSep });
+            return y + 40;
         }
 
         NumericUpDown Num(Panel p, string lab, double v, double min, double max, double inc, int dec, ref int y, Action<double> onCh)
@@ -505,12 +516,12 @@ namespace SimulateurPliage
         // champ machine : modification -> orange, puis ✓ (appliquer) ou ↺ (annuler). Rien n'est applique avant.
         void MNum(Panel p, string lab, double v, ref int y, Action<double> apply)
         {
-            var l = new Label { Text = lab, Left = 16, Top = y + 4, Width = 152, ForeColor = CMuted, Font = new Font("Segoe UI", 8.5f) };
-            var n = new NumericUpDown { Left = 172, Top = y, Width = 84, Minimum = 0, Maximum = 5000, DecimalPlaces = 1,
+            var l = new Label { Text = lab, Left = 14, Top = y + 6, Width = 148, Height = 18, ForeColor = CMuted, Font = new Font("Segoe UI", 9f) };
+            var n = new NumericUpDown { Left = 164, Top = y, Width = 86, Height = 26, Minimum = 0, Maximum = 5000, DecimalPlaces = 1,
                 Increment = 1, Value = (decimal)v, BackColor = CInput, ForeColor = CText, BorderStyle = BorderStyle.FixedSingle, Enabled = false };
-            var ok = new Button { Text = "✓", Left = 260, Top = y - 1, Width = 26, Height = 24, Visible = false,
+            var ok = new Button { Text = "✓", Left = 256, Top = y, Width = 28, Height = 26, Visible = false,
                 FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(28, 70, 36), ForeColor = CVert, Margin = new Padding(0) };
-            var un = new Button { Text = "↺", Left = 288, Top = y - 1, Width = 26, Height = 24, Visible = false,
+            var un = new Button { Text = "↺", Left = 286, Top = y, Width = 28, Height = 26, Visible = false,
                 FlatStyle = FlatStyle.Flat, BackColor = CBtn, ForeColor = CMuted, Margin = new Padding(0) };
             ok.FlatAppearance.BorderColor = CGrey; un.FlatAppearance.BorderColor = CGrey;
 
@@ -530,7 +541,7 @@ namespace SimulateurPliage
 
             mfields.Add(f);
             p.Controls.Add(l); p.Controls.Add(n); p.Controls.Add(ok); p.Controls.Add(un);
-            y += 28;
+            y += 34;
         }
 
         ComboBox Combo(Panel p, string lab, string[] items, int sel, ref int y, Action<int> onCh)
@@ -556,9 +567,9 @@ namespace SimulateurPliage
             c.Items.AddRange(items); return c;
         }
 
-        Button Btn(string t, int w, Action onClick)
+        Button Btn(string t, int w, Action onClick, int h = 28)
         {
-            var b = new Button { Text = t, Width = w, Height = 28, FlatStyle = FlatStyle.Flat, BackColor = CBtn, ForeColor = CText, Margin = new Padding(2) };
+            var b = new Button { Text = t, Width = w, Height = h, FlatStyle = FlatStyle.Flat, BackColor = CBtn, ForeColor = CText, Margin = new Padding(3, 2, 3, 2) };
             b.FlatAppearance.BorderColor = CGrey;
             b.Click += (s, e) => onClick();
             return b;
@@ -687,6 +698,7 @@ namespace SimulateurPliage
         {
             int n = piece.Sequence.Count;
             if (dgSeq.Rows.Count < n + 1) return;
+            if (dgSeq.IsCurrentCellInEditMode) return;
             int edit = dgSeq.IsCurrentCellInEditMode && dgSeq.CurrentCell != null ? dgSeq.CurrentCell.RowIndex : -1;
 
             for (int i = 0; i < n; i++)

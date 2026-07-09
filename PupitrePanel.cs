@@ -80,13 +80,13 @@ namespace SimulateurPliage
                 Font = new Font("Consolas", 9.5f), Padding = new Padding(2, 6, 0, 0)
             };
 
-            var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 44, BackColor = CBg, Padding = new Padding(0, 6, 0, 0) };
-            bar.Controls.Add(Btn("+ pli", 84, () => AddBendRequested?.Invoke(), COrange));
-            bar.Controls.Add(Btn("+ étape", 84, () => AddOpRequested?.Invoke()));
-            bar.Controls.Add(Btn("–", 44, () => DelOpRequested?.Invoke()));
-            bar.Controls.Add(Btn("↑", 44, () => MoveOpRequested?.Invoke(-1)));
-            bar.Controls.Add(Btn("↓", 44, () => MoveOpRequested?.Invoke(+1)));
-            bar.Controls.Add(Btn("Trier", 74, () => SortRequested?.Invoke()));
+            var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 60, BackColor = CBg, Padding = new Padding(0, 8, 0, 0) };
+            bar.Controls.Add(Btn("+ pli", 110, () => AddBendRequested?.Invoke(), COrange));
+            bar.Controls.Add(Btn("+ étape", 110, () => AddOpRequested?.Invoke()));
+            bar.Controls.Add(Btn("–", 58, () => DelOpRequested?.Invoke()));
+            bar.Controls.Add(Btn("↑", 58, () => MoveOpRequested?.Invoke(-1)));
+            bar.Controls.Add(Btn("↓", 58, () => MoveOpRequested?.Invoke(+1)));
+            bar.Controls.Add(Btn("Trier", 92, () => SortRequested?.Invoke()));
 
             dg = new DataGridView
             {
@@ -115,7 +115,7 @@ namespace SimulateurPliage
             Fill(dg, new DataGridViewTextBoxColumn { Name = "ord", HeaderText = "N°" }, 8);
             Fill(dg, new DataGridViewTextBoxColumn { Name = "pli", HeaderText = "PLI" }, 10);
             Fill(dg, new DataGridViewTextBoxColumn { Name = "r",   HeaderText = "R butée (int.)" }, 24);
-            Fill(dg, new DataGridViewTextBoxColumn { Name = "ang", HeaderText = "ANGLE" }, 16);
+            Fill(dg, new DataGridViewTextBoxColumn { Name = "ang", HeaderText = "ANGLE °" }, 16);
             Fill(dg, ComboCol("sens", "SENS", new[] { "Haut", "Bas" }), 16);
             Fill(dg, ComboCol("v", "V", new[] { "16" }), 12);
             Fill(dg, new DataGridViewCheckBoxColumn { Name = "rep", HeaderText = "REPRISE" }, 14);
@@ -163,11 +163,16 @@ namespace SimulateurPliage
 
             dg.DataError += (s, e) => { e.ThrowException = false; };
 
+            // une fois l'edition terminee, on remet les couleurs a jour
+            dg.CellEndEdit += (s, e) => { if (!_load) StyleRows(); };
+
+            // DIFFERE : si on previent MainForm tout de suite, le recoloriage qui suit
+            // arrive avant que WinForms ait ouvert l'editeur de cellule, et le tue.
             dg.SelectionChanged += (s, e) =>
             {
                 if (_load || piece == null || dg.CurrentCell == null) return;
                 int r = dg.CurrentCell.RowIndex;
-                if (r >= 0 && r < piece.Sequence.Count && r != cur) StepPicked?.Invoke(r);
+                if (r >= 0 && r < piece.Sequence.Count && r != cur) Defer(() => StepPicked?.Invoke(r));
             };
 
             Controls.Add(dg);
@@ -192,6 +197,13 @@ namespace SimulateurPliage
             return c;
         }
 
+        // sort de la pile d'evenements de la grille avant de la retoucher
+        void Defer(Action a)
+        {
+            if (IsHandleCreated) BeginInvoke(a);
+            else a();
+        }
+
         static void Fill(DataGridView g, DataGridViewColumn c, int weight)
         {
             c.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
@@ -207,9 +219,9 @@ namespace SimulateurPliage
 
         Button Btn(string t, int w, Action onClick, Color? fg = null)
         {
-            var b = new Button { Text = t, Width = w, Height = 30, FlatStyle = FlatStyle.Flat,
-                BackColor = CBtn, ForeColor = fg ?? CTxt, Margin = new Padding(3, 0, 3, 0),
-                Font = new Font("Segoe UI", 9f, FontStyle.Bold) };
+            var b = new Button { Text = t, Width = w, Height = 40, FlatStyle = FlatStyle.Flat,
+                BackColor = CBtn, ForeColor = fg ?? CTxt, Margin = new Padding(4, 0, 4, 0),
+                Font = new Font("Segoe UI", 10.5f, FontStyle.Bold) };
             b.FlatAppearance.BorderColor = CGrey;
             b.Click += (s, e) => onClick();
             return b;
@@ -227,7 +239,7 @@ namespace SimulateurPliage
         {
             if (piece == null) return;
             cur = step;
-            StyleRows();
+            if (!dg.IsCurrentCellInEditMode) StyleRows();
         }
 
         string[] VStrings()
@@ -264,7 +276,7 @@ namespace SimulateurPliage
                         (i + 1).ToString("00"),
                         "P" + (o.Bend + 1),
                         piece.ButeeInt(o.Bend).ToString("0.0", CultureInfo.InvariantCulture),
-                        o.AngleCible.ToString("0", CultureInfo.InvariantCulture) + "\u00b0",
+                        o.AngleCible.ToString("0", CultureInfo.InvariantCulture),
                         o.Sens == Sens.Haut ? "Haut" : "Bas",
                         vv,
                         o.Reprise);
