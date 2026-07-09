@@ -273,7 +273,10 @@ namespace SimulateurPliage
                 $"angle       {st.AngleActif:0}°",
                 $"V           {(int)st.Op.V}",
                 $"butée       {st.ButeeDistance:0.#} mm",
+                $"côté        {(st.ButeeAval ? "pan aval ⇄" : "pan amont")}",
                 $"épaisseur   {ep:0.##} mm",
+                $"long. pli   {piece.LongueurPli:0} mm",
+                $"effort      {st.Tonnage:0} kN/m  ({st.Tonnage * piece.LongueurPli / 1000.0 / 9.81:0.0} t)",
                 $"assise      {seat:0.00} mm",
             };
             float w = 0, h = 0;

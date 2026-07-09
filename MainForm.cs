@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
 using System.Windows.Forms;
@@ -34,8 +35,8 @@ namespace SimulateurPliage
         bool _load;      // remplissage de grille en cours : on ignore les evenements
         bool[] seqHits = new bool[0];   // collision par operation (pour CellFormatting)
 
-        NumericUpDown nNb, nEp;
-        ComboBox cbCotes, cbPoin, cbMat;
+        NumericUpDown nNb, nEp, nLong;
+        ComboBox cbCotes, cbPoin, cbMat, cbMateriau;
         DataGridView dgSeq;
         SectionPanel view;
         PupitrePanel pupitre;
@@ -146,6 +147,9 @@ namespace SimulateurPliage
             y = Title(head, "PIÈCE", y);
             nNb = Num(head, "Nombre de plis", piece.NbPlis, 0, MAXPLIS, 1, 0, ref y, v => SetNbPlis((int)v));
             nEp = Num(head, "Épaisseur (mm)", 1.0, 0.4, 5, 0.1, 2, ref y, v => { piece.Epaisseur = v; Recompute(); });
+            nLong = Num(head, "Longueur de pli (mm)", 500, 10, 5000, 10, 0, ref y, v => { piece.LongueurPli = v; Recompute(); });
+            cbMateriau = Combo(head, "Matériau", new[] { "Acier  Rm 450", "Inox  Rm 600", "Alu  Rm 250", "Zinc  Rm 150" }, 0, ref y,
+                i => { piece.Rm = new[] { 450.0, 600.0, 250.0, 150.0 }[i]; Recompute(); });
             cbCotes = Combo(head, "Cotes", new[] { "intérieures", "extérieures" }, 0, ref y,
                 i => { piece.CotesExterieures = i == 1; Recompute(); });
 
@@ -172,6 +176,7 @@ namespace SimulateurPliage
             barSeq.Controls.Add(Btn("↑", 36, () => MoveOpAt(dgSeq.CurrentCell?.RowIndex ?? -1, -1), 34));
             barSeq.Controls.Add(Btn("↓", 36, () => MoveOpAt(dgSeq.CurrentCell?.RowIndex ?? -1, +1), 34));
             barSeq.Controls.Add(Btn("Trier", 54, SortByBend, 34));
+            barSeq.Controls.Add(Btn("Ordre auto", 88, AutoOrdre, 34));
             barSeq.Controls.Add(Btn("Exemple U", 84, () => { piece = Piece.Demo(); step = 0; Recompute(); }, 34));
             seqBox.Controls.Add(barSeq);
 
@@ -200,8 +205,9 @@ namespace SimulateurPliage
             AddFillCol(dgSeq, new DataGridViewTextBoxColumn { Name = "r",   HeaderText = "R butée" }, 19);
             AddFillCol(dgSeq, new DataGridViewTextBoxColumn { Name = "ang", HeaderText = "Angle°" }, 15);
             AddFillCol(dgSeq, ComboCol("sens", "Sens", new[] { "Haut", "Bas" }), 16);
-            AddFillCol(dgSeq, ComboCol("v", "V", VStrings()), 11);
-            AddFillCol(dgSeq, new DataGridViewCheckBoxColumn { Name = "rep", HeaderText = "Rep." }, 12);
+            AddFillCol(dgSeq, ComboCol("v", "V", VStrings()), 10);
+            AddFillCol(dgSeq, new DataGridViewCheckBoxColumn { Name = "inv", HeaderText = "⇄" }, 9);
+            AddFillCol(dgSeq, new DataGridViewCheckBoxColumn { Name = "rep", HeaderText = "Rep." }, 10);
             AddFillCol(dgSeq, DelCol(), 8);
 
             // N°, Pli et ✕ non editables ; ligne "fin" : seule la cote R est editable.
@@ -321,10 +327,17 @@ namespace SimulateurPliage
             MNum(machContent, "Retrait", cfg.ColRetrait, ref my, v => cfg.ColRetrait = v);
             MNum(machContent, "Hauteur", cfg.ColHauteur, ref my, v => cfg.ColHauteur = v);
 
-            my = SubTitle(machContent, "BUTÉE & TABLIER", my);
+            my = SubTitle(machContent, "BUTÉE ARRIÈRE", my);
+            MNum(machContent, "Profondeur mini", cfg.ButeeMin, ref my, v => cfg.ButeeMin = v);
+            MNum(machContent, "Profondeur maxi", cfg.ButeeMax, ref my, v => cfg.ButeeMax = v);
+            MNum(machContent, "Entraxe latéral maxi", cfg.ButeeLatMax, ref my, v => cfg.ButeeLatMax = v);
+
+            my = SubTitle(machContent, "CAPACITÉ MACHINE", my);
+            MNum(machContent, "Longueur de pli mini", cfg.LongPliMin, ref my, v => cfg.LongPliMin = v);
+            MNum(machContent, "Longueur de pli maxi", cfg.LongPliMax, ref my, v => cfg.LongPliMax = v);
+            MNum(machContent, "Arcade (passage lat.)", cfg.ColPassageLat, ref my, v => cfg.ColPassageLat = v);
             MNum(machContent, "Tablier déport", cfg.TablierDeport, ref my, v => cfg.TablierDeport = v);
             MNum(machContent, "Hauteur libre (repère)", cfg.HauteurLibre, ref my, v => cfg.HauteurLibre = v);
-            MNum(machContent, "Butée arrière max", cfg.ButeeMax, ref my, v => cfg.ButeeMax = v);
 
             my = SubTitle(machContent, "EMBASES", my);
             MNum(machContent, "Porte-poinçon hauteur", cfg.Embase.PortePoinconH, ref my, v => cfg.Embase.PortePoinconH = v);
@@ -384,6 +397,7 @@ namespace SimulateurPliage
             pupitre.DeleteRowRequested += DeleteRow;
             pupitre.MoveOpRequested    += d => MoveOpAt(pupitre.CurrentRow, d);
             pupitre.SortRequested      += SortByBend;
+            pupitre.AutoOrderRequested += AutoOrdre;
 
             pupitre.BringToFront();
         }
@@ -739,17 +753,19 @@ namespace SimulateurPliage
                     var o = piece.Sequence[i];
                     string vv = ((int)o.V).ToString();
                     if (!vcol.Items.Contains(vv)) vv = v0;
+                    int bi = o.ButeeAval ? o.Bend + 1 : o.Bend;
                     dgSeq.Rows.Add((i + 1).ToString(), (o.Bend + 1).ToString(),
-                        piece.ButeeInt(o.Bend).ToString("0.#", CultureInfo.InvariantCulture),
+                        piece.ButeeInt(bi).ToString("0.#", CultureInfo.InvariantCulture),
                         o.AngleCible.ToString("0.#", CultureInfo.InvariantCulture),
-                        o.Sens == Sens.Haut ? "Haut" : "Bas", vv, o.Reprise);
+                        o.Sens == Sens.Haut ? "Haut" : "Bas", vv, o.ButeeAval, o.Reprise);
                 }
 
                 int fr = dgSeq.Rows.Add("—", "fin",
-                    piece.ButeeInt(piece.NbPlis).ToString("0.#", CultureInfo.InvariantCulture), "", null, null, false);
+                    piece.ButeeInt(piece.NbPlis).ToString("0.#", CultureInfo.InvariantCulture), "", null, null, false, false);
                 dgSeq.Rows[fr].Cells["del"] = new DataGridViewTextBoxCell { Value = "" };
 
                 if (nNb != null) nNb.Value = Clamp(nNb, piece.NbPlis);
+                if (nLong != null) nLong.Value = Clamp(nLong, piece.LongueurPli);
                 if (lblDev != null)
                     lblDev.Text = $"L développé  {LDeveloppe:0.#} mm   ·   {piece.Segments.Count} pans";
 
@@ -784,13 +800,16 @@ namespace SimulateurPliage
                 }
                 int pli = (int)ParseD(row.Cells["pli"].Value, i + 1);
                 int bend = Math.Max(0, Math.Min(Math.Max(0, piece.NbPlis - 1), pli - 1));
-                piece.SetButeeInt(bend, ParseD(row.Cells["r"].Value, piece.ButeeInt(bend)));
+                bool aval = row.Cells["inv"].Value is bool ba && ba;
+                int bi = Math.Min(piece.Segments.Count - 1, aval ? bend + 1 : bend);
+                piece.SetButeeInt(bi, ParseD(row.Cells["r"].Value, piece.ButeeInt(bi)));
                 list.Add(new Operation
                 {
                     Bend = bend,
                     AngleCible = Math.Max(1, Math.Min(179, ParseD(row.Cells["ang"].Value, 90))),
                     Sens = (row.Cells["sens"].Value as string) == "Bas" ? Sens.Bas : Sens.Haut,
                     V = ParseD(row.Cells["v"].Value, 16),
+                    ButeeAval = aval,
                     Reprise = row.Cells["rep"].Value is bool b && b
                 });
             }
@@ -809,6 +828,7 @@ namespace SimulateurPliage
                 AngleCible = 90,
                 Sens = src?.Sens ?? Sens.Haut,
                 V = src?.V ?? ParseD(VStrings()[0], 16),
+                ButeeAval = src?.ButeeAval ?? false,
                 Reprise = true
             });
             step = piece.Sequence.Count - 1;
@@ -831,6 +851,151 @@ namespace SimulateurPliage
             (piece.Sequence[idx], piece.Sequence[j]) = (piece.Sequence[j], piece.Sequence[idx]);
             step = j;
             Recompute();
+            SelectRowBoth(j);   // le curseur suit la ligne, sinon on deplace la voisine au clic suivant
+        }
+
+        void SelectRowBoth(int r)
+        {
+            if (r >= 0 && r < dgSeq.Rows.Count)
+            {
+                _load = true;
+                var m = dgSeq.EditMode;
+                dgSeq.EditMode = DataGridViewEditMode.EditProgrammatically;
+                dgSeq.CurrentCell = dgSeq.Rows[r].Cells["r"];
+                dgSeq.EditMode = m;
+                _load = false;
+            }
+            pupitre.SelectRow(r);
+        }
+
+        static Operation CloneOp(Operation o) => new Operation
+        {
+            Bend = o.Bend, AngleCible = o.AngleCible, Sens = o.Sens,
+            V = o.V, ButeeAval = o.ButeeAval, Reprise = o.Reprise
+        };
+
+        // ================================================================
+        //  Recherche d'un ordre de pliage sans collision.
+        //  Parcours en profondeur avec elagage : des qu'une etape tape
+        //  l'outillage, on abandonne toute la branche. Chaque pli est
+        //  essaye dans les deux sens d'engagement (butee amont / aval).
+        //  Les passes d'un meme pli gardent leur ordre relatif (le
+        //  marquage reste avant la fermeture).
+        // ================================================================
+        void AutoOrdre()
+        {
+            int n = piece.Sequence.Count;
+            if (n < 2) return;
+
+            var all = new List<Operation>(piece.Sequence);
+            var tmp = new Piece { Epaisseur = piece.Epaisseur, CotesExterieures = piece.CotesExterieures };
+            tmp.Segments.AddRange(piece.Segments);
+
+            var used   = new bool[n];
+            var cur    = new List<Operation>(n);
+            var curIdx = new List<int>(n);
+            List<Operation> best = null;
+            double bestScore = double.MaxValue;
+            int nodes = 0;
+            var sw = Stopwatch.StartNew();
+            bool cap = false;
+
+            bool EtapeOk()
+            {
+                tmp.Sequence = cur;
+                var stt = FoldEngine.Build(tmp, cur.Count - 1, cfg, curPoin, curMat, cfg.Embase);
+                foreach (var c in stt.Collisions) if (c.Bloquant) return false;
+                return true;
+            }
+
+            double Score()
+            {
+                double sc = 0;
+                var plies = new List<Operation>();
+                for (int i = 0; i < cur.Count; i++)
+                {
+                    var o = cur[i];
+                    plies.Add(o);
+                    tmp.Sequence = plies;
+                    var angs = FoldEngine.AnglesAtStep(tmp, i, out _);
+                    double r = FoldEngine.ButeeReelle(piece, angs, o.Bend, o.ButeeAval);
+                    if (r < cfg.ButeeMin) sc += 60;                                   // hors d'atteinte : trusquin
+                    if (r > cfg.ButeeMax) sc += 300;                                  // hors course butee
+                    if (i > 0 && o.ButeeAval != cur[i - 1].ButeeAval) sc += 120;      // engager la piece a l'envers
+                    if (i > 0 && o.Sens != cur[i - 1].Sens) sc += 200;                // RETOURNER la piece (vallee <-> crete)
+                    if (i > 0 && Math.Abs(o.V - cur[i - 1].V) > 0.01) sc += 40;       // changer de matrice
+                    sc += Math.Abs(i - curIdx[i]);                                    // rester proche du saisi
+                }
+                return sc;
+            }
+
+            void Dfs()
+            {
+                if (++nodes > 400000 || sw.ElapsedMilliseconds > 4000) { cap = true; return; }
+                if (cur.Count == n)
+                {
+                    double sc = Score();
+                    if (sc < bestScore)
+                    {
+                        bestScore = sc;
+                        best = new List<Operation>(n);
+                        foreach (var o in cur) best.Add(CloneOp(o));
+                    }
+                    return;
+                }
+                for (int i = 0; i < n; i++)
+                {
+                    if (used[i]) continue;
+                    // une passe anterieure sur le meme pli n'est pas encore posee -> interdit
+                    bool bloque = false;
+                    for (int j = 0; j < i; j++)
+                        if (!used[j] && all[j].Bend == all[i].Bend) { bloque = true; break; }
+                    if (bloque) continue;
+
+                    for (int k = 0; k < 2; k++)
+                    {
+                        bool aval = k == 0 ? all[i].ButeeAval : !all[i].ButeeAval;
+                        var cand = CloneOp(all[i]); cand.ButeeAval = aval;
+                        cur.Add(cand); curIdx.Add(i);
+                        if (EtapeOk()) { used[i] = true; Dfs(); used[i] = false; }
+                        cur.RemoveAt(cur.Count - 1); curIdx.RemoveAt(curIdx.Count - 1);
+                        if (cap) return;
+                    }
+                }
+            }
+
+            Cursor.Current = Cursors.WaitCursor;
+            Dfs();
+            Cursor.Current = Cursors.Default;
+
+            if (best == null)
+            {
+                MessageBox.Show(this,
+                    "Aucun ordre de pliage ne passe avec cet outillage.\n\n" +
+                    $"{nodes} combinaisons explorées, les deux sens d'engagement compris.\n\n" +
+                    "La pièce se referme sur le poinçon quel que soit l'ordre : il faut un autre " +
+                    "poinçon (col de cygne plus dégagé), ou revoir les cotes.",
+                    "Ordre de pliage", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            piece.Sequence = best;
+            step = 0;
+            Recompute();
+            SelectRowBoth(0);
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"Ordre trouvé en {nodes} nœuds ({sw.ElapsedMilliseconds} ms).");
+            if (cap) sb.AppendLine("Recherche écourtée : la solution retenue est valide mais peut-être pas la meilleure.");
+            sb.AppendLine();
+            for (int i = 0; i < best.Count; i++)
+            {
+                var o = best[i];
+                var stI = FoldEngine.Build(piece, i, cfg, curPoin, curMat, cfg.Embase);
+                sb.AppendLine($"  {i + 1}.  pli {o.Bend + 1}   {o.AngleCible:0}°   V{(int)o.V}   " +
+                              $"butée {stI.ButeeDistance:0.#} mm   {(o.ButeeAval ? "⇄ pan aval" : "pan amont")}");
+            }
+            MessageBox.Show(this, sb.ToString(), "Ordre de pliage", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         static double ParseD(object o, double def)

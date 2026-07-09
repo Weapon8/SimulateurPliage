@@ -23,6 +23,7 @@ namespace SimulateurPliage
         public event Action AddOpRequested;         // + étape (2e passe -> reprise)
         public event Action DelOpRequested;         // supprime la passe courante
         public event Action SortRequested;          // remet le programme dans l'ordre des plis
+        public event Action AutoOrderRequested;     // cherche un ordre de pliage sans collision
         public event Action<int> DeleteRowRequested;// ✕ : supprime la passe (et le pli si derniere)
         public event Action<int> MoveOpRequested;
 
@@ -86,6 +87,7 @@ namespace SimulateurPliage
             bar.Controls.Add(Btn("↑", 58, () => MoveOpRequested?.Invoke(-1)));
             bar.Controls.Add(Btn("↓", 58, () => MoveOpRequested?.Invoke(+1)));
             bar.Controls.Add(Btn("Trier", 92, () => SortRequested?.Invoke()));
+            bar.Controls.Add(Btn("Ordre auto", 150, () => AutoOrderRequested?.Invoke(), COrange));
 
             dg = new DataGridView
             {
@@ -116,8 +118,9 @@ namespace SimulateurPliage
             Fill(dg, new DataGridViewTextBoxColumn { Name = "r",   HeaderText = "R butée (int.)" }, 24);
             Fill(dg, new DataGridViewTextBoxColumn { Name = "ang", HeaderText = "ANGLE °" }, 16);
             Fill(dg, ComboCol("sens", "SENS", new[] { "Haut", "Bas" }), 16);
-            Fill(dg, ComboCol("v", "V", new[] { "16" }), 12);
-            Fill(dg, new DataGridViewCheckBoxColumn { Name = "rep", HeaderText = "REPRISE" }, 14);
+            Fill(dg, ComboCol("v", "V", new[] { "16" }), 10);
+            Fill(dg, new DataGridViewCheckBoxColumn { Name = "inv", HeaderText = "⇄ BUTÉE" }, 12);
+            Fill(dg, new DataGridViewCheckBoxColumn { Name = "rep", HeaderText = "REPRISE" }, 12);
             Fill(dg, DelCol(), 8);
 
             // non editables : N°, PLI et ✕ ; et tout sauf R sur la ligne "fin".
@@ -232,6 +235,18 @@ namespace SimulateurPliage
             return b;
         }
 
+        // place le curseur sur une ligne sans ouvrir d'editeur
+        public void SelectRow(int r)
+        {
+            if (dg == null || r < 0 || r >= dg.Rows.Count) return;
+            _load = true;
+            var mode = dg.EditMode;
+            dg.EditMode = DataGridViewEditMode.EditProgrammatically;
+            dg.CurrentCell = dg.Rows[r].Cells["r"];
+            dg.EditMode = mode;
+            _load = false;
+        }
+
         // ---- changement de STRUCTURE : on reconstruit les lignes ----
         public void SetData(Piece p, int step, Poincon pn, Matrice mt, Embase eb)
         {
@@ -255,7 +270,7 @@ namespace SimulateurPliage
             string ep = piece.Epaisseur.ToString("0.##", CultureInfo.InvariantCulture);
             string smode = piece.CotesExterieures ? "extérieures" : "intérieures";
             lblFoot.Text = $"L développé {dev:0.#} mm  ·  {piece.Segments.Count} pans  ·  ép {ep} mm  ·  cotes {smode}  ·  " +
-                           "R = cote intérieure lue à la butée arrière  ·  ✕ supprime la passe (et le pli si c'est la dernière)";
+                           "R = cote intérieure lue à la butée  ·  ⇄ = pièce engagée à l'envers, la butée lit le pan aval  ·  ✕ supprime la passe";
         }
 
         void RecalcHits()
@@ -301,18 +316,20 @@ namespace SimulateurPliage
                     var o = piece.Sequence[i];
                     string vv = ((int)o.V).ToString();
                     if (!vcol.Items.Contains(vv)) vv = v0;
+                    int bi = o.ButeeAval ? o.Bend + 1 : o.Bend;
                     dg.Rows.Add(
                         (i + 1).ToString("00"),
                         "P" + (o.Bend + 1),
-                        piece.ButeeInt(o.Bend).ToString("0.0", CultureInfo.InvariantCulture),
+                        piece.ButeeInt(bi).ToString("0.0", CultureInfo.InvariantCulture),
                         o.AngleCible.ToString("0", CultureInfo.InvariantCulture),
                         o.Sens == Sens.Haut ? "Haut" : "Bas",
                         vv,
+                        o.ButeeAval,
                         o.Reprise);
                 }
 
                 // ligne FIN : le dernier pan, sans pli apres lui. Pas de bouton ✕ dessus.
-                int fr = dg.Rows.Add("—", "fin", piece.ButeeInt(piece.NbPlis).ToString("0.0", CultureInfo.InvariantCulture), "", null, null, false);
+                int fr = dg.Rows.Add("—", "fin", piece.ButeeInt(piece.NbPlis).ToString("0.0", CultureInfo.InvariantCulture), "", null, null, false, false);
                 dg.Rows[fr].Cells["del"] = new DataGridViewTextBoxCell { Value = "" };
 
                 if (cr >= 0 && cr < dg.Rows.Count && cc >= 0 && cc < dg.Columns.Count)
@@ -346,8 +363,11 @@ namespace SimulateurPliage
 
                 int pli = (int)ParseD(row.Cells["pli"].Value, i + 1);
                 int bend = Math.Max(0, Math.Min(Math.Max(0, piece.NbPlis - 1), pli - 1));
+                bool aval = row.Cells["inv"].Value is bool ba && ba;
 
-                piece.SetButeeInt(bend, ParseD(row.Cells["r"].Value, piece.ButeeInt(bend)));
+                // la cote R saisie porte sur le pan effectivement lu par la butee
+                int bi = Math.Min(piece.Segments.Count - 1, aval ? bend + 1 : bend);
+                piece.SetButeeInt(bi, ParseD(row.Cells["r"].Value, piece.ButeeInt(bi)));
 
                 list.Add(new Operation
                 {
@@ -355,6 +375,7 @@ namespace SimulateurPliage
                     AngleCible = Math.Max(1, Math.Min(179, ParseD(row.Cells["ang"].Value, 90))),
                     Sens = (row.Cells["sens"].Value as string) == "Bas" ? Sens.Bas : Sens.Haut,
                     V = ParseD(row.Cells["v"].Value, 16),
+                    ButeeAval = aval,
                     Reprise = row.Cells["rep"].Value is bool b && b
                 });
             }

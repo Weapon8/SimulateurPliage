@@ -27,12 +27,26 @@ namespace SimulateurPliage
         public double BlocLargeur      = 60;    // largeur reelle du bloc matrice (fiche)
         public Embase Embase           = new(); // embases porte-outil
 
-        // --- Plieuse ---
-        public double TablierDeport    = 50;    // deport tablier bas (fourni)
-        public double HauteurLibre     = 120;   // garde verticale ouverte (fourni ~)
-        public double ButeeMax         = 700;   // course butee arriere (fourni)
-        public double ColPassageLat    = 3100;  // largeur interieure col de cygne (info, lateral)
-        public double ColProfondeurLat = 500;   // profondeur laterale col de cygne (info)
+        // --- Plieuse : Loire Safe (cotes relevees) ---
+        public double TablierDeport    = 50;      // deport tablier bas
+        public double HauteurLibre     = 120;     // garde verticale ouverte (repere visuel)
+
+        // Butee arriere, en PROFONDEUR (perpendiculaire a la ligne de pli).
+        // 10,2 mm mini : les doigts sont decroches, ils longent le bloc matrice.
+        public double ButeeMin         = 10.2;
+        public double ButeeMax         = 695;
+
+        // Butee arriere, course LATERALE des doigts (le long de la ligne de pli).
+        public double ButeeLatMin      = 100;
+        public double ButeeLatMax      = 2900;
+
+        // Longueur de pli admissible (longueur de la piece le long de la ligne de pli).
+        public double LongPliMin       = 100;
+        public double LongPliMax       = 4050;
+
+        // Arcade : passage lateral entre les montants. Une piece deja fermee
+        // (caisson, U profond) doit y entrer pour aller se poser sur la matrice.
+        public double ColPassageLat    = 3000;
 
         public double DemiPointe => PoinconAngleDeg * Math.PI / 360.0; // demi-angle en rad
     }
@@ -48,11 +62,19 @@ namespace SimulateurPliage
         public Sens   Sens = Sens.Haut;
         public double V = 16;        // ouverture matrice utilisee
         public bool   Reprise;       // true => pli en plusieurs passes (affiche en VERT), sinon BLEU (direct)
+
+        // Cote butee. false (defaut) : la butee lit le pan AMONT (celui d'avant le pli).
+        // true : l'operateur engage la piece dans l'autre sens, la butee lit le pan AVAL.
+        // Geometriquement c'est un miroir gauche/droite : la piece est retournee bout pour
+        // bout, la face reste la meme, l'angle et le sens ne changent pas.
+        public bool   ButeeAval;
     }
 
     public sealed class Piece
     {
         public double Epaisseur = 1.0;
+        public double LongueurPli = 500;            // longueur de la piece le long de la ligne de pli
+        public double Rm = 450;                     // N/mm2 : acier 450, inox 600, alu 250, zinc 150
         public bool   CotesExterieures = false;     // false = cotes interieures, true = exterieures
         public List<double> Segments = new();       // longueurs des pans (NbPlis+1 segments)
         public List<Operation> Sequence = new();    // timeline ordonnee des operations

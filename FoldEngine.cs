@@ -24,6 +24,8 @@ namespace SimulateurPliage
         public double ButeeDistance;    // longueur du pan cote butee
         public double Seat;             // Y du sommet de pli (fibre neutre) dans le repere machine
         public double AngleActif = 180; // angle interieur du pli en cours
+        public bool   ButeeAval;        // la butee lit le pan aval (piece engagee a l'envers)
+        public double Tonnage;          // effort de pliage estime, kN par metre de pli
         public List<Collision> Collisions = new();
     }
 
@@ -103,10 +105,12 @@ namespace SimulateurPliage
             for (int i = 0; i < full.Count; i++)
                 full[i] = new Pt(full[i].X * cs - full[i].Y * sn, full[i].X * sn + full[i].Y * cs);
 
-            // --- 3) pan butee du COTE DU COL DE CYGNE (+X) ---
-            // Le retour deja plie remonte dans le creux du poincon ; le volet en formage
-            // part a l'oppose, le long de la face pleine du bec.
-            if (full[vb - 1].X * COL_SIGNE < 0)
+            // --- 3) le pan cote BUTEE va du COTE DU COL DE CYGNE (+X) ---
+            // Par defaut c'est le pan AMONT (avant le pli). Si l'operateur engage la piece
+            // dans l'autre sens (ButeeAval), c'est le pan AVAL qui vient contre la butee :
+            // la piece est simplement retournee bout pour bout -> miroir en X.
+            int refIdx = op.ButeeAval ? vb + 1 : vb - 1;
+            if (full[refIdx].X * COL_SIGNE < 0)
                 for (int i = 0; i < full.Count; i++) full[i] = new Pt(-full[i].X, full[i].Y);
 
             // --- 4) assise : la FACE HAUTE du pli touche la pointe R (y = ep) ---
@@ -124,10 +128,40 @@ namespace SimulateurPliage
             // --- split ---
             for (int i = 0; i <= vb; i++) st.BackChain.Add(full[i]);
             for (int i = vb; i < full.Count; i++) st.Forming.Add(full[i]);
-            st.ButeeDistance = p.Segments.Count > op.Bend ? p.Segments[op.Bend] : 0;
+            st.ButeeAval = op.ButeeAval;
+            st.ButeeDistance = ButeeReelle(p, ang, op.Bend, op.ButeeAval);
+
+            // effort de pliage en l'air : F = 650 . ep^2 / V   (kN/m, acier Rm=450)
+            double vOuv = Math.Max(1.0, op.V);
+            st.Tonnage = 650.0 * ep * ep / vOuv * (p.Rm / 450.0);
 
             st.Collisions = Detect(st, cfg, p, poin, mat, emb);
             return st;
+        }
+
+        // Distance reelle lue par la butee : du pli actif jusqu'au PREMIER PLI DEJA FORME
+        // du cote butee, et a defaut jusqu'au BORD de la tole. Un doigt de butee ne
+        // traverse pas un pli : il s'arrete dessus.
+        public static double ButeeReelle(Piece p, double[] ang, int bend, bool aval)
+        {
+            double d = 0;
+            if (aval)
+            {
+                for (int k = bend + 1; k < p.Segments.Count; k++)
+                {
+                    d += p.Segments[k];
+                    if (k <= p.NbPlis - 1 && Math.Abs(ang[k] - 180.0) > 0.01) return d;
+                }
+            }
+            else
+            {
+                for (int k = bend; k >= 0; k--)
+                {
+                    d += p.Segments[k];
+                    if (k - 1 >= 0 && Math.Abs(ang[k - 1] - 180.0) > 0.01) return d;
+                }
+            }
+            return d;   // aucun pli rencontre : la butee touche le bord de tole
         }
 
         // Face droite du poincon a la hauteur y (fallback si pas de contour reel).
@@ -217,9 +251,33 @@ namespace SimulateurPliage
             if (AutoCroise(poly))
                 res.Add(new Collision("repli sur repli", "la pièce se referme sur elle-même", true));
 
-            // butee
+            // --- butee arriere, en profondeur ---
             if (st.ButeeDistance > cfg.ButeeMax)
-                res.Add(new Collision("butée arrière", $"pan de {st.ButeeDistance:0} mm > course butée {cfg.ButeeMax:0} mm", false));
+                res.Add(new Collision("butée arrière", $"{st.ButeeDistance:0} mm > course {cfg.ButeeMax:0} mm — hors d'atteinte", false));
+            else if (st.ButeeDistance < cfg.ButeeMin)
+                res.Add(new Collision("butée arrière", $"{st.ButeeDistance:0.#} mm < mini {cfg.ButeeMin:0.#} mm — jauge au trusquin", false));
+
+            // --- aile mini : sous 0,63 x V le pan ne repose plus sur les epaulements
+            //     de la matrice, il bascule et tombe dans le V. Piece foutue, outil marque.
+            double vv = st.Op != null ? st.Op.V : 16;
+            double aileMin = 0.63 * vv;
+            int b0 = st.ActiveBend, b1 = st.ActiveBend + 1;
+            double panA = (b0 >= 0 && b0 < p.Segments.Count) ? p.Segments[b0] : 999;
+            double panB = (b1 >= 0 && b1 < p.Segments.Count) ? p.Segments[b1] : 999;
+            double panMin = Math.Min(panA, panB);
+            if (panMin < aileMin)
+                res.Add(new Collision("aile mini",
+                    $"pan de {panMin:0.#} mm < {aileMin:0.#} mm (0,63 × V{(int)vv}) — il tombe dans le V", true));
+
+            // --- longueur de pli ---
+            if (p.LongueurPli < cfg.LongPliMin)
+                res.Add(new Collision("longueur de pli", $"{p.LongueurPli:0} mm < {cfg.LongPliMin:0} mm — non jaugeable", true));
+            if (p.LongueurPli > cfg.LongPliMax)
+                res.Add(new Collision("longueur de pli", $"{p.LongueurPli:0} mm > {cfg.LongPliMax:0} mm — hors machine", true));
+            if (p.LongueurPli > cfg.ButeeLatMax)
+                res.Add(new Collision("butée latérale", $"{p.LongueurPli:0} mm > entraxe maxi {cfg.ButeeLatMax:0} mm — jauger vers l'intérieur", false));
+            if (p.LongueurPli > cfg.ColPassageLat)
+                res.Add(new Collision("arcade", $"{p.LongueurPli:0} mm > passage {cfg.ColPassageLat:0} mm — une pièce fermée n'entre pas", false));
 
             return res;
         }
