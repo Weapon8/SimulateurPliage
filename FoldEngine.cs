@@ -191,17 +191,24 @@ namespace SimulateurPliage
             if (hitPP)  res.Add(new Collision("porte-poinçon", "un retour touche l'embase du poinçon", true));
             if (hitSem) res.Add(new Collision("semelle", "la pièce touche la semelle/porte-matrice", true));
 
+            // extremite libre entierement enfouie dans le poincon (aucune arete coupee)
+            if (!hitP && punch != null)
+            {
+                bool inside = false;
+                for (int i = 0; i + 1 < nbk; i++) if (PointInPoly(Sh(st.BackChain[i]), punch)) inside = true;
+                for (int i = 1; i < st.Forming.Count; i++) if (PointInPoly(Sh(st.Forming[i]), punch)) inside = true;
+                if (inside) res.Add(new Collision("poinçon", "un retour de tôle est dans le poinçon", true));
+            }
+
             // bec du poincon plus ouvert que le pli demande
             double bec = poin != null ? poin.AngleDeg : cfg.PoinconAngleDeg;
             if (st.AngleActif < bec - 0.5)
                 res.Add(new Collision("bec poinçon", $"pli {st.AngleActif:0}° < bec {bec:0}° — poinçon trop épais", true));
 
-            // hauteur libre
-            double top = double.MinValue;
-            foreach (var q in st.BackChain) top = Math.Max(top, q.Y + seat);
-            foreach (var q in st.Forming)   top = Math.Max(top, q.Y + seat);
-            if (top > cfg.HauteurLibre)
-                res.Add(new Collision("hauteur libre", $"la pièce monte à {top:0} mm > {cfg.HauteurLibre:0} mm", false));
+            // NOTE : pas de test "hauteur libre" sur le max(Y) global — un pan encore a plat
+            // monte librement dans le vide devant la machine. Ce qui contraint reellement,
+            // c'est la remontee DANS L'AXE du tablier : c'est le rectangle porte-poincon
+            // (teste ci-dessus). La ligne pointillee reste un simple repere visuel.
 
             // repli sur repli (la piece se referme sur elle-meme)
             var poly = new List<Pt>();
