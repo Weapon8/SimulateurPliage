@@ -10,22 +10,20 @@ namespace SimulateurPliage
     // Une ligne = une operation de pliage. La colonne R (butee) EST le pan cote butee.
     // La derniere ligne "fin" porte le dernier pan (celui qui n'a pas de pli apres lui).
     //
-    // Trois regles apprises a la dure :
-    //  1. EditMode = EditOnEnter  -> un clic ouvre la saisie (comportement pupitre).
-    //  2. CommitEdit() sur CurrentCellDirtyStateChanged UNIQUEMENT pour cases a cocher
-    //     et listes deroulantes. Sur une cellule texte il se declenche a chaque frappe
-    //     et pousse la valeur en cours de saisie : la cellule devient inutilisable.
-    //  3. SetData() reconstruit (structure), SetStep() recolorie (etape).
-    //     Reconstruire sur un changement d'etape vide la grille sous les doigts.
+    // REGLE D'OR : on ne mute JAMAIS les styles de lignes ou de cellules a la main.
+    // Chaque affectation de row.DefaultCellStyle / cell.ToolTipText invalide la ligne et
+    // detruit le controle d'edition que WinForms vient d'installer -> la cellule devient
+    // impossible a saisir. Les couleurs sont calculees a la volee dans CellFormatting,
+    // qui se declenche au dessin et n'interfere avec rien.
     public class PupitrePanel : Panel
     {
         public event Action Edited;                 // une valeur a change
         public event Action<int> StepPicked;        // l'operateur a clique une ligne
-        public event Action AddBendRequested;       // + pli   (ajoute une ligne de pli a la piece)
-        public event Action AddOpRequested;         // + étape (2e passe sur un pli -> reprise)
+        public event Action AddBendRequested;       // + pli
+        public event Action AddOpRequested;         // + étape (2e passe -> reprise)
         public event Action DelOpRequested;         // supprime la passe courante
         public event Action SortRequested;          // remet le programme dans l'ordre des plis
-        public event Action<int> DeleteRowRequested;// ✕ : supprime la ligne (et le pli si derniere passe)
+        public event Action<int> DeleteRowRequested;// ✕ : supprime la passe (et le pli si derniere)
         public event Action<int> MoveOpRequested;
 
         readonly MachineConfig cfg;
@@ -34,7 +32,8 @@ namespace SimulateurPliage
         Poincon poin;
         Matrice mat;
         Embase emb;
-        bool _load;      // remplissage en cours : on ignore les evenements de la grille
+        bool _load;
+        bool[] hits = new bool[0];   // collision par operation, recalcule a chaque etape
 
         DataGridView dg;
         Label lblTitle, lblFoot;
@@ -122,11 +121,7 @@ namespace SimulateurPliage
             Fill(dg, DelCol(), 8);
 
             // non editables : N°, PLI et ✕ ; et tout sauf R sur la ligne "fin".
-            // PLI est un AFFICHAGE : la ligne de pli d'une operation se choisit a la
-            // creation (+ pli / + étape), jamais en tapant dedans. Sinon on reassigne
-            // silencieusement une cote butee au mauvais pan.
-            // Passer par CellBeginEdit plutot que Cell.ReadOnly : poser ReadOnly cellule
-            // par cellule bascule la ligne entiere en lecture seule de facon imprevisible.
+            // PLI est un AFFICHAGE : la ligne de pli d'une operation se choisit a la creation.
             dg.CellBeginEdit += (s, e) =>
             {
                 string col = dg.Columns[e.ColumnIndex].Name;
@@ -144,12 +139,11 @@ namespace SimulateurPliage
                     dg.CommitEdit(DataGridViewDataErrorContexts.Commit);
             };
 
-            // CellValueChanged couvre le texte (a la fin de l'edition) ET la case a cocher
-            // (qui ne passe jamais par CellEndEdit).
             dg.CellValueChanged += (s, e) =>
             {
                 if (_load || e.RowIndex < 0) return;
                 ReadBack();
+                RecalcHits();
                 Edited?.Invoke();       // MainForm rafraichit l'AUTRE grille, pas celle-ci
             };
 
@@ -163,16 +157,37 @@ namespace SimulateurPliage
 
             dg.DataError += (s, e) => { e.ThrowException = false; };
 
-            // une fois l'edition terminee, on remet les couleurs a jour
-            dg.CellEndEdit += (s, e) => { if (!_load) StyleRows(); };
-
-            // DIFFERE : si on previent MainForm tout de suite, le recoloriage qui suit
-            // arrive avant que WinForms ait ouvert l'editeur de cellule, et le tue.
             dg.SelectionChanged += (s, e) =>
             {
                 if (_load || piece == null || dg.CurrentCell == null) return;
                 int r = dg.CurrentCell.RowIndex;
-                if (r >= 0 && r < piece.Sequence.Count && r != cur) Defer(() => StepPicked?.Invoke(r));
+                if (r >= 0 && r < piece.Sequence.Count && r != cur) StepPicked?.Invoke(r);
+            };
+
+            // ---- COULEURS : calculees au dessin, aucune mutation de style ----
+            dg.CellFormatting += (s, e) =>
+            {
+                if (piece == null || e.RowIndex < 0 || e.ColumnIndex < 0) return;
+                int n = piece.Sequence.Count;
+
+                if (e.RowIndex >= n)     // ligne "fin"
+                {
+                    e.CellStyle.ForeColor = CFin; e.CellStyle.SelectionForeColor = CFin;
+                    e.CellStyle.BackColor = CFinBg; e.CellStyle.SelectionBackColor = CFinBg;
+                    return;
+                }
+
+                bool hit = e.RowIndex < hits.Length && hits[e.RowIndex];
+                bool act = e.RowIndex == cur;
+                Color bg = act ? CCurBg : CRow;
+                Color fg = dg.Columns[e.ColumnIndex].Name == "del"
+                    ? CRed
+                    : (hit ? CRed : (act ? COrange : CGreen));
+
+                e.CellStyle.ForeColor = fg;
+                e.CellStyle.SelectionForeColor = fg;
+                e.CellStyle.BackColor = bg;
+                e.CellStyle.SelectionBackColor = act ? CCurBg : CSelBg;
             };
 
             Controls.Add(dg);
@@ -189,19 +204,8 @@ namespace SimulateurPliage
                 Name = "del", HeaderText = "", Text = "✕",
                 UseColumnTextForButtonValue = true, FlatStyle = FlatStyle.Flat
             };
-            c.DefaultCellStyle.ForeColor = CRed;
-            c.DefaultCellStyle.SelectionForeColor = CRed;
-            c.DefaultCellStyle.BackColor = CRow;
-            c.DefaultCellStyle.SelectionBackColor = CRow;
             c.DefaultCellStyle.Font = new Font("Segoe UI", 11f, FontStyle.Bold);
             return c;
-        }
-
-        // sort de la pile d'evenements de la grille avant de la retoucher
-        void Defer(Action a)
-        {
-            if (IsHandleCreated) BeginInvoke(a);
-            else a();
         }
 
         static void Fill(DataGridView g, DataGridViewColumn c, int weight)
@@ -227,19 +231,29 @@ namespace SimulateurPliage
             return b;
         }
 
-        // ---- changement de STRUCTURE : on reconstruit ----
+        // ---- changement de STRUCTURE : on reconstruit les lignes ----
         public void SetData(Piece p, int step, Poincon pn, Matrice mt, Embase eb)
         {
             piece = p; cur = step; poin = pn; mat = mt; emb = eb;
             Rebuild();
         }
 
-        // ---- changement d'ETAPE seul : on recolorie ----
+        // ---- changement d'ETAPE seul : on recalcule les couleurs et on repeint ----
         public void SetStep(int step)
         {
             if (piece == null) return;
             cur = step;
-            if (!dg.IsCurrentCellInEditMode) StyleRows();
+            RecalcHits();
+            dg.Invalidate();
+        }
+
+        void RecalcHits()
+        {
+            if (piece == null) { hits = new bool[0]; return; }
+            var h = new bool[piece.Sequence.Count];
+            for (int i = 0; i < h.Length; i++)
+                h[i] = FoldEngine.Build(piece, i, cfg, poin, mat, emb).Collisions.Count > 0;
+            hits = h;
         }
 
         string[] VStrings()
@@ -254,10 +268,14 @@ namespace SimulateurPliage
         {
             if (piece == null) return;
             _load = true;
+            var mode = dg.EditMode;
             try
             {
                 if (dg.IsCurrentCellInEditMode) dg.EndEdit();
                 int cr = dg.CurrentCell?.RowIndex ?? -1, cc = dg.CurrentCell?.ColumnIndex ?? -1;
+
+                // restaurer CurrentCell sans declencher une edition automatique
+                dg.EditMode = DataGridViewEditMode.EditProgrammatically;
 
                 var vcol = (DataGridViewComboBoxColumn)dg.Columns["v"];
                 vcol.Items.Clear();
@@ -290,57 +308,13 @@ namespace SimulateurPliage
                     dg.CurrentCell = dg.Rows[cr].Cells[cc];
 
                 string ep = piece.Epaisseur.ToString("0.##", CultureInfo.InvariantCulture);
-                string mode = piece.CotesExterieures ? "extérieures (R converti en int.)" : "intérieures";
-                lblFoot.Text = $"ép {ep} mm  ·  saisie {mode}  ·  R = cote intérieure lue à la butée arrière  ·  ✕ supprime la passe (et le pli si c'est la dernière)";
+                string smode = piece.CotesExterieures ? "extérieures (R converti en int.)" : "intérieures";
+                lblFoot.Text = $"ép {ep} mm  ·  saisie {smode}  ·  R = cote intérieure lue à la butée arrière  ·  ✕ supprime la passe (et le pli si c'est la dernière)";
             }
-            finally { _load = false; }
+            finally { dg.EditMode = mode; _load = false; }
 
-            StyleRows();
-        }
-
-        // couleurs seules. On saute la ligne en cours d'edition : la restyler
-        // detruirait le controle de saisie sous les doigts de l'operateur.
-        void StyleRows()
-        {
-            if (piece == null) return;
-            int n = piece.Sequence.Count;
-            if (dg.Rows.Count < n + 1) return;
-            int edit = dg.IsCurrentCellInEditMode && dg.CurrentCell != null ? dg.CurrentCell.RowIndex : -1;
-
-            for (int i = 0; i < n; i++)
-            {
-                if (i == edit) continue;
-                var st = FoldEngine.Build(piece, i, cfg, poin, mat, emb);
-                bool hit = st.Collisions.Count > 0;
-                var row = dg.Rows[i];
-                Color fg = hit ? CRed : (i == cur ? COrange : CGreen);
-                Color bg = (i == cur) ? CCurBg : CRow;
-                row.DefaultCellStyle.ForeColor = fg;
-                row.DefaultCellStyle.SelectionForeColor = fg;
-                row.DefaultCellStyle.BackColor = bg;
-                row.DefaultCellStyle.SelectionBackColor = (i == cur) ? CCurBg : CSelBg;
-
-                // le ✕ reste rouge quoi qu'il arrive
-                var dc = row.Cells["del"].Style;
-                dc.ForeColor = CRed; dc.SelectionForeColor = CRed;
-                dc.BackColor = bg;   dc.SelectionBackColor = bg;
-
-                double from = AngleBefore(i);
-                string tip = $"{from:0}°→{piece.Sequence[i].AngleCible:0}°  " +
-                             (piece.Sequence[i].Reprise ? "reprise" : "direct") +
-                             (hit ? "   ! " + st.Collisions[0].Type : "");
-                foreach (DataGridViewCell c in row.Cells) c.ToolTipText = tip;
-                row.Cells["del"].ToolTipText = "Supprimer cette passe (et le pli si c'est la dernière)";
-            }
-
-            if (n != edit)
-            {
-                var frow = dg.Rows[n];
-                frow.DefaultCellStyle.ForeColor = CFin;
-                frow.DefaultCellStyle.SelectionForeColor = CFin;
-                frow.DefaultCellStyle.BackColor = CFinBg;
-                frow.DefaultCellStyle.SelectionBackColor = CFinBg;
-            }
+            RecalcHits();
+            dg.Invalidate();
         }
 
         // relit toute la grille dans la Piece (source unique de verite)
@@ -376,15 +350,6 @@ namespace SimulateurPliage
                 });
             }
             piece.Sequence = list;
-        }
-
-        double AngleBefore(int s)
-        {
-            if (piece == null || s < 0 || s >= piece.Sequence.Count) return 180;
-            int bend = piece.Sequence[s].Bend;
-            double a = 180;
-            for (int i = 0; i < s; i++) if (piece.Sequence[i].Bend == bend) a = piece.Sequence[i].AngleCible;
-            return a;
         }
 
         // "P2" -> 2 ; "90°" -> 90 ; "40,5" -> 40.5

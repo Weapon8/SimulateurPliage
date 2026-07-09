@@ -32,6 +32,7 @@ namespace SimulateurPliage
         Piece piece = Piece.Demo();
         int step = 0;
         bool _load;      // remplissage de grille en cours : on ignore les evenements
+        bool[] seqHits = new bool[0];   // collision par operation (pour CellFormatting)
 
         NumericUpDown nNb, nEp;
         ComboBox cbCotes, cbPoin, cbMat;
@@ -239,14 +240,36 @@ namespace SimulateurPliage
 
             dgSeq.DataError += (s, e) => { e.ThrowException = false; };
 
-            // DIFFERE : recolorier avant que WinForms ait ouvert l'editeur de cellule le tue.
             dgSeq.SelectionChanged += (s, e) =>
             {
                 if (_load || dgSeq.CurrentCell == null) return;
                 int r = dgSeq.CurrentCell.RowIndex;
-                if (r >= 0 && r < piece.Sequence.Count && r != step) Defer(() => SetStep(r));
+                if (r >= 0 && r < piece.Sequence.Count && r != step) SetStep(r);
             };
-            dgSeq.CellEndEdit += (s, e) => { if (!_load) StyleSeqRows(); };
+
+            // ---- COULEURS : calculees au dessin. On ne mute JAMAIS row.DefaultCellStyle :
+            // cela invalide la ligne et detruit l'editeur de cellule en cours d'ouverture.
+            dgSeq.CellFormatting += (s, e) =>
+            {
+                if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
+                int n = piece.Sequence.Count;
+                if (e.RowIndex >= n)     // ligne "fin"
+                {
+                    e.CellStyle.ForeColor = CFin; e.CellStyle.SelectionForeColor = CFin;
+                    e.CellStyle.BackColor = CLockBg; e.CellStyle.SelectionBackColor = CLockBg;
+                    return;
+                }
+                bool hit = e.RowIndex < seqHits.Length && seqHits[e.RowIndex];
+                bool act = e.RowIndex == step;
+                Color bg = act ? CCurBg : CInput;
+                Color fg = dgSeq.Columns[e.ColumnIndex].Name == "del"
+                    ? CRouge
+                    : (hit ? CRouge : (piece.Sequence[e.RowIndex].Reprise ? CVert : CBleu));
+                e.CellStyle.ForeColor = fg;
+                e.CellStyle.SelectionForeColor = fg;
+                e.CellStyle.BackColor = bg;
+                e.CellStyle.SelectionBackColor = act ? CCurBg : CBtn;
+            };
             seqBox.Controls.Add(dgSeq);
             dgSeq.BringToFront();
 
@@ -348,7 +371,7 @@ namespace SimulateurPliage
 
             // ---- synchro temps reel : le pupitre ecrit dans la MEME Piece ----
             // apres une saisie au pupitre, on rafraichit dgSeq (pas le pupitre lui-meme).
-            pupitre.Edited             += () => { FillSeqGrid(); BuildEnumeration(); Redraw(); };
+            pupitre.Edited             += () => { FillSeqGrid(); BuildEnumeration(); Redraw(); };   // dgSeq seulement
             pupitre.StepPicked         += SetStep;
             pupitre.AddBendRequested   += AddBend;
             pupitre.AddOpRequested     += AddOp;
@@ -367,10 +390,6 @@ namespace SimulateurPliage
                 Name = "del", HeaderText = "", Text = "✕",
                 UseColumnTextForButtonValue = true, FlatStyle = FlatStyle.Flat
             };
-            c.DefaultCellStyle.ForeColor = CRouge;
-            c.DefaultCellStyle.SelectionForeColor = CRouge;
-            c.DefaultCellStyle.BackColor = CInput;
-            c.DefaultCellStyle.SelectionBackColor = CInput;
             c.DefaultCellStyle.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
             return c;
         }
@@ -657,10 +676,12 @@ namespace SimulateurPliage
         void FillSeqGrid()
         {
             _load = true;
+            var mode = dgSeq.EditMode;
             try
             {
                 if (dgSeq.IsCurrentCellInEditMode) dgSeq.EndEdit();
                 int cr = dgSeq.CurrentCell?.RowIndex ?? -1, cc = dgSeq.CurrentCell?.ColumnIndex ?? -1;
+                dgSeq.EditMode = DataGridViewEditMode.EditProgrammatically;
 
                 var vcol = (DataGridViewComboBoxColumn)dgSeq.Columns["v"];
                 vcol.Items.Clear();
@@ -690,42 +711,16 @@ namespace SimulateurPliage
                 if (cr >= 0 && cr < dgSeq.Rows.Count && cc >= 0 && cc < dgSeq.Columns.Count)
                     dgSeq.CurrentCell = dgSeq.Rows[cr].Cells[cc];
             }
-            finally { _load = false; }
+            finally { dgSeq.EditMode = mode; _load = false; }
+            dgSeq.Invalidate();
         }
 
-        // --- couleurs seules. On saute la ligne en cours d'edition. ---
-        void StyleSeqRows()
+        void RecalcSeqHits()
         {
-            int n = piece.Sequence.Count;
-            if (dgSeq.Rows.Count < n + 1) return;
-            if (dgSeq.IsCurrentCellInEditMode) return;
-            int edit = dgSeq.IsCurrentCellInEditMode && dgSeq.CurrentCell != null ? dgSeq.CurrentCell.RowIndex : -1;
-
-            for (int i = 0; i < n; i++)
-            {
-                if (i == edit) continue;
-                var o = piece.Sequence[i];
-                var st = FoldEngine.Build(piece, i, cfg, curPoin, curMat, cfg.Embase);
-                Color col = st.Collisions.Count > 0 ? CRouge : (o.Reprise ? CVert : CBleu);
-                Color bg = (i == step) ? CCurBg : CInput;
-                var row = dgSeq.Rows[i];
-                row.DefaultCellStyle.ForeColor = col;
-                row.DefaultCellStyle.SelectionForeColor = col;
-                row.DefaultCellStyle.BackColor = bg;
-
-                var dc = row.Cells["del"].Style;   // le ✕ reste rouge
-                dc.ForeColor = CRouge; dc.SelectionForeColor = CRouge;
-                dc.BackColor = bg;     dc.SelectionBackColor = bg;
-                row.Cells["del"].ToolTipText = "Supprimer cette passe (et le pli si c'est la dernière)";
-            }
-
-            if (n != edit)
-            {
-                var frow = dgSeq.Rows[n];
-                frow.DefaultCellStyle.ForeColor = CFin;
-                frow.DefaultCellStyle.SelectionForeColor = CFin;
-                frow.DefaultCellStyle.BackColor = CLockBg;
-            }
+            var h = new bool[piece.Sequence.Count];
+            for (int i = 0; i < h.Length; i++)
+                h[i] = FoldEngine.Build(piece, i, cfg, curPoin, curMat, cfg.Embase).Collisions.Count > 0;
+            seqHits = h;
         }
 
         // relit la grille gauche dans la Piece (source unique de verite)
@@ -833,7 +828,8 @@ namespace SimulateurPliage
             view.SetState(st, piece, StepColor(step));
             pupitre.SetStep(step);                       // recoloriage seul
             developpe.SetData(piece, step, Retournements());
-            StyleSeqRows();
+            RecalcSeqHits();
+            dgSeq.Invalidate();
 
             if (piece.Sequence.Count == 0)
             {
