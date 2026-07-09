@@ -9,11 +9,19 @@ namespace SimulateurPliage
     // Vue "pupitre" facon commande numerique Cybelec/Delem, EDITABLE.
     // Une ligne = une operation de pliage. La colonne R (butee) EST le pan cote butee :
     // pans et plis sont la meme donnee, il n'y a plus de table de pans separee.
-    // La derniere ligne "FIN" porte le dernier pan (celui qui n'a pas de pli apres lui).
+    // La derniere ligne "fin" porte le dernier pan (celui qui n'a pas de pli apres lui).
+    //
+    // IMPORTANT : tous les evenements sortants sont emis en differe (BeginInvoke).
+    // Recharger la grille depuis l'interieur d'un CellEndEdit / SelectionChanged
+    // provoque "appel reentrant a SetCurrentCellAddressCore".
     public class PupitrePanel : Panel
     {
-        public event Action Edited;            // une cellule a ete validee -> MainForm recalcule
-        public event Action<int> StepPicked;   // l'operateur a clique une ligne
+        public event Action Edited;              // une cellule a ete validee
+        public event Action<int> StepPicked;     // l'operateur a clique une ligne
+        public event Action AddBendRequested;    // + pli   (ajoute une ligne de pli a la piece)
+        public event Action AddOpRequested;      // + étape (2e passe sur un pli -> reprise)
+        public event Action DelOpRequested;
+        public event Action<int> MoveOpRequested;
 
         readonly MachineConfig cfg;
         Piece piece;
@@ -21,7 +29,8 @@ namespace SimulateurPliage
         Poincon poin;
         Matrice mat;
         Embase emb;
-        bool _load;
+        bool _load;      // remplissage en cours : on ignore les evenements de la grille
+        bool _reload;    // garde anti-reentrance sur Reload()
 
         DataGridView dg;
         Label lblTitle, lblFoot;
@@ -30,11 +39,16 @@ namespace SimulateurPliage
         static readonly Color CRow   = Color.FromArgb(22, 27, 34);
         static readonly Color CCurBg = Color.FromArgb(40, 30, 12);
         static readonly Color CHead  = Color.FromArgb(140, 150, 162);
-        static readonly Color CGreen = Color.FromArgb(80, 230, 120);   // afficheur
+        static readonly Color CGreen = Color.FromArgb(80, 230, 120);
         static readonly Color COrange= Color.FromArgb(255, 170, 60);
         static readonly Color CRed   = Color.FromArgb(235, 90, 80);
         static readonly Color CGrey  = Color.FromArgb(50, 58, 68);
+        static readonly Color CBtn   = Color.FromArgb(43, 49, 59);
+        static readonly Color CTxt   = Color.FromArgb(230, 235, 240);
         static readonly Color CFin   = Color.FromArgb(120, 130, 145);
+
+        // index de ligne courant (pour les actions supprimer / monter / descendre)
+        public int CurrentRow => dg?.CurrentCell?.RowIndex ?? -1;
 
         public PupitrePanel(MachineConfig c)
         {
@@ -58,6 +72,13 @@ namespace SimulateurPliage
                 Dock = DockStyle.Bottom, Height = 26, ForeColor = CHead, BackColor = CBg,
                 Font = new Font("Consolas", 9.5f), Padding = new Padding(2, 6, 0, 0)
             };
+
+            var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 44, BackColor = CBg, Padding = new Padding(0, 6, 0, 0) };
+            bar.Controls.Add(Btn("+ pli", 84, () => Defer(() => AddBendRequested?.Invoke()), COrange));
+            bar.Controls.Add(Btn("+ étape", 84, () => Defer(() => AddOpRequested?.Invoke())));
+            bar.Controls.Add(Btn("–", 44, () => Defer(() => DelOpRequested?.Invoke())));
+            bar.Controls.Add(Btn("↑", 44, () => Defer(() => MoveOpRequested?.Invoke(-1))));
+            bar.Controls.Add(Btn("↓", 44, () => Defer(() => MoveOpRequested?.Invoke(+1))));
 
             dg = new DataGridView
             {
@@ -86,26 +107,38 @@ namespace SimulateurPliage
             Fill(dg, new DataGridViewTextBoxColumn { Name = "pli", HeaderText = "PLI" }, 10);
             Fill(dg, new DataGridViewTextBoxColumn { Name = "r",   HeaderText = "R butée (int.)" }, 24);
             Fill(dg, new DataGridViewTextBoxColumn { Name = "ang", HeaderText = "ANGLE" }, 16);
-            Fill(dg, new DataGridViewComboBoxColumn { Name = "sens", HeaderText = "SENS", FlatStyle = FlatStyle.Flat }, 16);
-            Fill(dg, new DataGridViewComboBoxColumn { Name = "v",  HeaderText = "V", FlatStyle = FlatStyle.Flat }, 12);
+            Fill(dg, ComboCol("sens", "SENS", new[] { "Haut", "Bas" }), 16);
+            Fill(dg, ComboCol("v", "V", new[] { "16" }), 12);
             Fill(dg, new DataGridViewCheckBoxColumn { Name = "rep", HeaderText = "REPRISE" }, 14);
 
-            ((DataGridViewComboBoxColumn)dg.Columns["sens"]).Items.AddRange("Haut", "Bas");
-
-            dg.CellEndEdit += (s, e) => { if (!_load) { ReadBack(); Edited?.Invoke(); } };
+            // --- evenements : on relit tout de suite, on previent EN DIFFERE ---
+            dg.CellEndEdit += (s, e) =>
+            {
+                if (_load) return;
+                ReadBack();
+                Defer(() => Edited?.Invoke());
+            };
             dg.CurrentCellDirtyStateChanged += (s, e) => { if (dg.IsCurrentCellDirty) dg.CommitEdit(DataGridViewDataErrorContexts.Commit); };
             dg.DataError += (s, e) => { e.ThrowException = false; };
             dg.SelectionChanged += (s, e) =>
             {
-                if (_load || dg.CurrentCell == null || piece == null) return;
+                if (_load || _reload || piece == null || dg.CurrentCell == null) return;
                 int r = dg.CurrentCell.RowIndex;
-                if (r >= 0 && r < piece.Sequence.Count && r != cur) StepPicked?.Invoke(r);
+                if (r >= 0 && r < piece.Sequence.Count && r != cur) Defer(() => StepPicked?.Invoke(r));
             };
 
             Controls.Add(dg);
+            Controls.Add(bar);
             Controls.Add(lblFoot);
             Controls.Add(lblTitle);
             dg.BringToFront();
+        }
+
+        // sort de la pile d'evenements de la grille avant de la recharger
+        void Defer(Action a)
+        {
+            if (IsHandleCreated) BeginInvoke(a);
+            else a();
         }
 
         static void Fill(DataGridView g, DataGridViewColumn c, int weight)
@@ -113,6 +146,22 @@ namespace SimulateurPliage
             c.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
             c.FillWeight = weight;
             g.Columns.Add(c);
+        }
+
+        static DataGridViewComboBoxColumn ComboCol(string name, string head, string[] items)
+        {
+            var c = new DataGridViewComboBoxColumn { Name = name, HeaderText = head, FlatStyle = FlatStyle.Flat };
+            c.Items.AddRange(items); return c;
+        }
+
+        Button Btn(string t, int w, Action onClick, Color? fg = null)
+        {
+            var b = new Button { Text = t, Width = w, Height = 30, FlatStyle = FlatStyle.Flat,
+                BackColor = CBtn, ForeColor = fg ?? CTxt, Margin = new Padding(3, 0, 3, 0),
+                Font = new Font("Segoe UI", 9f, FontStyle.Bold) };
+            b.FlatAppearance.BorderColor = CGrey;
+            b.Click += (s, e) => onClick();
+            return b;
         }
 
         public void SetData(Piece p, int step, Poincon pn, Matrice mt, Embase eb)
@@ -131,74 +180,76 @@ namespace SimulateurPliage
 
         void Reload()
         {
-            if (piece == null) return;
-            _load = true;
-
-            // memoriser la cellule courante pour ne pas perdre le focus a chaque frappe
-            int cr = dg.CurrentCell?.RowIndex ?? -1, cc = dg.CurrentCell?.ColumnIndex ?? -1;
-
-            var vcol = (DataGridViewComboBoxColumn)dg.Columns["v"];
-            vcol.Items.Clear();
-            foreach (var s in VStrings()) vcol.Items.Add(s);
-            string v0 = VStrings()[0];
-
-            dg.Rows.Clear();
-            int n = piece.Sequence.Count;
-
-            for (int i = 0; i < n; i++)
+            if (piece == null || _reload) return;
+            _reload = true; _load = true;
+            try
             {
-                var o = piece.Sequence[i];
-                string vv = ((int)o.V).ToString();
-                if (!vcol.Items.Contains(vv)) vv = v0;
-                dg.Rows.Add(
-                    (i + 1).ToString("00"),
-                    "P" + (o.Bend + 1),
-                    piece.ButeeInt(o.Bend).ToString("0.0", CultureInfo.InvariantCulture),
-                    o.AngleCible.ToString("0", CultureInfo.InvariantCulture) + "\u00b0",
-                    o.Sens == Sens.Haut ? "Haut" : "Bas",
-                    vv,
-                    o.Reprise);
+                if (dg.IsCurrentCellInEditMode) dg.EndEdit();
+
+                int cr = dg.CurrentCell?.RowIndex ?? -1, cc = dg.CurrentCell?.ColumnIndex ?? -1;
+
+                var vcol = (DataGridViewComboBoxColumn)dg.Columns["v"];
+                vcol.Items.Clear();
+                foreach (var s in VStrings()) vcol.Items.Add(s);
+                string v0 = VStrings()[0];
+
+                dg.CurrentCell = null;      // evite tout SetCurrentCellAddressCore pendant Clear()
+                dg.Rows.Clear();
+
+                int n = piece.Sequence.Count;
+                for (int i = 0; i < n; i++)
+                {
+                    var o = piece.Sequence[i];
+                    string vv = ((int)o.V).ToString();
+                    if (!vcol.Items.Contains(vv)) vv = v0;
+                    dg.Rows.Add(
+                        (i + 1).ToString("00"),
+                        "P" + (o.Bend + 1),
+                        piece.ButeeInt(o.Bend).ToString("0.0", CultureInfo.InvariantCulture),
+                        o.AngleCible.ToString("0", CultureInfo.InvariantCulture) + "\u00b0",
+                        o.Sens == Sens.Haut ? "Haut" : "Bas",
+                        vv,
+                        o.Reprise);
+                }
+
+                // ligne FIN : le dernier pan, sans pli apres lui
+                int fr = dg.Rows.Add("—", "fin", piece.ButeeInt(piece.NbPlis).ToString("0.0", CultureInfo.InvariantCulture), "", null, null, false);
+                var frow = dg.Rows[fr];
+                foreach (DataGridViewCell c in frow.Cells) c.ReadOnly = true;
+                frow.Cells["r"].ReadOnly = false;
+                frow.DefaultCellStyle.ForeColor = CFin;
+                frow.DefaultCellStyle.SelectionForeColor = CFin;
+                frow.DefaultCellStyle.BackColor = Color.FromArgb(18, 22, 28);
+
+                // couleurs par ligne : rouge collision, orange etape courante
+                for (int i = 0; i < n; i++)
+                {
+                    var st = FoldEngine.Build(piece, i, cfg, poin, mat, emb);
+                    bool hit = st.Collisions.Count > 0;
+                    var row = dg.Rows[i];
+                    Color fg = hit ? CRed : (i == cur ? COrange : CGreen);
+                    row.DefaultCellStyle.ForeColor = fg;
+                    row.DefaultCellStyle.SelectionForeColor = fg;
+                    row.DefaultCellStyle.BackColor = (i == cur) ? CCurBg : CRow;
+                    row.DefaultCellStyle.SelectionBackColor = (i == cur) ? CCurBg : Color.FromArgb(34, 42, 52);
+
+                    double from = AngleBefore(i);
+                    string tip = $"{from:0}°→{piece.Sequence[i].AngleCible:0}°  " +
+                                 (piece.Sequence[i].Reprise ? "reprise" : "direct") +
+                                 (hit ? "   ! " + st.Collisions[0].Type : "");
+                    foreach (DataGridViewCell c in row.Cells) c.ToolTipText = tip;
+                }
+
+                if (cr >= 0 && cr < dg.Rows.Count && cc >= 0 && cc < dg.Columns.Count)
+                    dg.CurrentCell = dg.Rows[cr].Cells[cc];
+                else if (cur >= 0 && cur < dg.Rows.Count)
+                    dg.CurrentCell = dg.Rows[cur].Cells["r"];
+
+                string ep = piece.Epaisseur.ToString("0.##", CultureInfo.InvariantCulture);
+                string mode = piece.CotesExterieures ? "extérieures (R converti en int.)" : "intérieures";
+                lblFoot.Text = $"ép {ep} mm  ·  saisie {mode}  ·  R = cote intérieure lue à la butée arrière  ·  ligne « fin » = dernier pan";
             }
-
-            // ligne FIN : le dernier pan, sans pli apres lui
-            int last = piece.NbPlis;
-            int fr = dg.Rows.Add("—", "fin", piece.ButeeInt(last).ToString("0.0", CultureInfo.InvariantCulture), "", null, null, false);
-            var frow = dg.Rows[fr];
-            foreach (DataGridViewCell c in frow.Cells) c.ReadOnly = true;
-            frow.Cells["r"].ReadOnly = false;
-            frow.DefaultCellStyle.ForeColor = CFin;
-            frow.DefaultCellStyle.SelectionForeColor = CFin;
-            frow.DefaultCellStyle.BackColor = Color.FromArgb(18, 22, 28);
-
-            // couleurs par ligne : rouge collision, orange etape courante
-            for (int i = 0; i < n; i++)
-            {
-                var st = FoldEngine.Build(piece, i, cfg, poin, mat, emb);
-                bool hit = st.Collisions.Count > 0;
-                var row = dg.Rows[i];
-                Color fg = hit ? CRed : (i == cur ? COrange : CGreen);
-                row.DefaultCellStyle.ForeColor = fg;
-                row.DefaultCellStyle.SelectionForeColor = fg;
-                row.DefaultCellStyle.BackColor = (i == cur) ? CCurBg : CRow;
-                row.DefaultCellStyle.SelectionBackColor = (i == cur) ? CCurBg : Color.FromArgb(34, 42, 52);
-
-                double from = AngleBefore(i);
-                string tip = $"{from:0}°→{piece.Sequence[i].AngleCible:0}°  " +
-                             (piece.Sequence[i].Reprise ? "reprise" : "direct") +
-                             (hit ? "   ! " + st.Collisions[0].Type : "");
-                foreach (DataGridViewCell c in row.Cells) c.ToolTipText = tip;
-            }
-
-            if (cr >= 0 && cr < dg.Rows.Count && cc >= 0 && cc < dg.Columns.Count)
-                dg.CurrentCell = dg.Rows[cr].Cells[cc];
-            else if (cur >= 0 && cur < dg.Rows.Count)
-                dg.CurrentCell = dg.Rows[cur].Cells["r"];
-
-            string ep = piece.Epaisseur.ToString("0.##", CultureInfo.InvariantCulture);
-            string mode = piece.CotesExterieures ? "extérieures (R converti en int.)" : "intérieures";
-            lblFoot.Text = $"ép {ep} mm  ·  saisie {mode}  ·  R = cote intérieure lue à la butée arrière  ·  ligne « fin » = dernier pan";
-
-            _load = false;
+            finally { _load = false; _reload = false; }
         }
 
         // relit toute la grille dans la Piece (source unique de verite)

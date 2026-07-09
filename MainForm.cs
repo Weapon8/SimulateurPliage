@@ -30,7 +30,8 @@ namespace SimulateurPliage
         Matrice curMat;
         Piece piece = Piece.Demo();
         int step = 0;
-        bool _load;
+        bool _load;      // remplissage de grille en cours
+        bool _reload;    // garde anti-reentrance
 
         NumericUpDown nNb, nEp;
         ComboBox cbCotes, cbPoin, cbMat;
@@ -55,6 +56,7 @@ namespace SimulateurPliage
         const int COLW   = 352;
         const int MACH_H = 400;
         const int MACH_C = 40;
+        const int MAXPLIS = 12;
 
         sealed class MField
         {
@@ -100,6 +102,13 @@ namespace SimulateurPliage
             if (curMat != null) cfg.BlocLargeur = curMat.BlocLargeur;
         }
 
+        // sort de la pile d'evenements d'une grille avant de la recharger
+        void Defer(Action a)
+        {
+            if (IsHandleCreated) BeginInvoke(a);
+            else a();
+        }
+
         // ------------------------------------------------ UI ----------
         void BuildUi()
         {
@@ -132,7 +141,7 @@ namespace SimulateurPliage
                 i => { curMat = lib.Matrices[i]; SyncCfgFromTools(); PushMachineFields(); view.SetTools(curMat, curPoin, cfg.Embase); ReloadGridsFromPiece(); Recompute(); });
 
             y = Title(head, "PIÈCE", y);
-            nNb = Num(head, "Nombre de plis", piece.NbPlis, 0, 12, 1, 0, ref y, v => SetNbPlis((int)v));
+            nNb = Num(head, "Nombre de plis", piece.NbPlis, 0, MAXPLIS, 1, 0, ref y, v => SetNbPlis((int)v));
             nEp = Num(head, "Épaisseur (mm)", 1.0, 0.4, 5, 0.1, 2, ref y, v => { piece.Epaisseur = v; ReloadGridsFromPiece(); Recompute(); });
             cbCotes = Combo(head, "Cotes", new[] { "intérieures", "extérieures" }, 0, ref y,
                 i => { piece.CotesExterieures = i == 1; ReloadGridsFromPiece(); Recompute(); });
@@ -151,11 +160,12 @@ namespace SimulateurPliage
             left.Controls.Add(seqBox, 0, 2);
 
             var barSeq = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 36, BackColor = CPanel };
-            barSeq.Controls.Add(Btn("+ étape", 74, AddOp));
-            barSeq.Controls.Add(Btn("–", 34, DelOp));
-            barSeq.Controls.Add(Btn("↑", 34, () => MoveOp(-1)));
-            barSeq.Controls.Add(Btn("↓", 34, () => MoveOp(+1)));
-            barSeq.Controls.Add(Btn("Exemple U", 92, () => { piece = Piece.Demo(); step = 0; ReloadGridsFromPiece(); Recompute(); }));
+            barSeq.Controls.Add(Btn("+ pli", 62, () => AddBend()));
+            barSeq.Controls.Add(Btn("+ étape", 70, AddOp));
+            barSeq.Controls.Add(Btn("–", 32, () => DelOpAt(dgSeq.CurrentCell?.RowIndex ?? -1)));
+            barSeq.Controls.Add(Btn("↑", 32, () => MoveOpAt(dgSeq.CurrentCell?.RowIndex ?? -1, -1)));
+            barSeq.Controls.Add(Btn("↓", 32, () => MoveOpAt(dgSeq.CurrentCell?.RowIndex ?? -1, +1)));
+            barSeq.Controls.Add(Btn("Exemple U", 82, () => { piece = Piece.Demo(); step = 0; ReloadGridsFromPiece(); Recompute(); }));
             seqBox.Controls.Add(barSeq);
 
             dgSeq = new DataGridView
@@ -185,14 +195,20 @@ namespace SimulateurPliage
             AddFillCol(dgSeq, ComboCol("v", "V", VStrings()), 12);
             AddFillCol(dgSeq, new DataGridViewCheckBoxColumn { Name = "rep", HeaderText = "Rep." }, 14);
 
-            dgSeq.CellEndEdit += (s, e) => { if (!_load) { ReadSeq(); ReloadGridsFromPiece(); Recompute(); } };
+            // relire tout de suite, recharger EN DIFFERE (sinon SetCurrentCellAddressCore reentrant)
+            dgSeq.CellEndEdit += (s, e) =>
+            {
+                if (_load) return;
+                ReadSeq();
+                Defer(() => { ReloadGridsFromPiece(); Recompute(); });
+            };
             dgSeq.CurrentCellDirtyStateChanged += (s, e) => { if (dgSeq.IsCurrentCellDirty) dgSeq.CommitEdit(DataGridViewDataErrorContexts.Commit); };
             dgSeq.DataError += (s, e) => { e.ThrowException = false; };
             dgSeq.SelectionChanged += (s, e) =>
             {
-                if (_load || dgSeq.CurrentCell == null) return;
+                if (_load || _reload || dgSeq.CurrentCell == null) return;
                 int r = dgSeq.CurrentCell.RowIndex;
-                if (r >= 0 && r < piece.Sequence.Count && r != step) SetStep(r);
+                if (r >= 0 && r < piece.Sequence.Count && r != step) Defer(() => SetStep(r));
             };
             seqBox.Controls.Add(dgSeq);
             dgSeq.BringToFront();
@@ -294,8 +310,12 @@ namespace SimulateurPliage
             right.Controls.Add(pupitre);
 
             // ---- synchro temps reel : le pupitre ecrit dans la MEME Piece ----
-            pupitre.Edited += () => { ReloadGridsFromPiece(); Recompute(); };
-            pupitre.StepPicked += s => SetStep(s);
+            pupitre.Edited            += () => { ReloadGridsFromPiece(); Recompute(); };
+            pupitre.StepPicked        += s => SetStep(s);
+            pupitre.AddBendRequested  += () => AddBend();
+            pupitre.AddOpRequested    += AddOp;
+            pupitre.DelOpRequested    += () => DelOpAt(pupitre.CurrentRow);
+            pupitre.MoveOpRequested   += d => MoveOpAt(pupitre.CurrentRow, d);
 
             pupitre.BringToFront();
         }
@@ -510,8 +530,18 @@ namespace SimulateurPliage
             return l.ToArray();
         }
 
+        // ajoute une LIGNE DE PLI a la piece (donc un pan de plus) + son operation
+        void AddBend()
+        {
+            if (piece.NbPlis >= MAXPLIS) return;
+            SetNbPlis(piece.NbPlis + 1);
+            step = piece.Sequence.Count - 1;
+            Recompute();
+        }
+
         void SetNbPlis(int nb)
         {
+            nb = Math.Max(0, Math.Min(MAXPLIS, nb));
             int segs = Math.Max(1, nb + 1);
             while (piece.Segments.Count < segs) piece.Segments.Add(100);
             while (piece.Segments.Count > segs) piece.Segments.RemoveAt(piece.Segments.Count - 1);
@@ -533,41 +563,48 @@ namespace SimulateurPliage
         // remplit la grille gauche depuis la Piece. Derniere ligne = "fin" (dernier pan).
         void ReloadGridsFromPiece()
         {
-            _load = true;
-            int cr = dgSeq.CurrentCell?.RowIndex ?? -1, cc = dgSeq.CurrentCell?.ColumnIndex ?? -1;
-
-            var vcol = (DataGridViewComboBoxColumn)dgSeq.Columns["v"];
-            vcol.Items.Clear();
-            foreach (var s in VStrings()) vcol.Items.Add(s);
-            string v0 = VStrings()[0];
-
-            dgSeq.Rows.Clear();
-            for (int i = 0; i < piece.Sequence.Count; i++)
+            if (_reload) return;
+            _reload = true; _load = true;
+            try
             {
-                var o = piece.Sequence[i];
-                string vv = ((int)o.V).ToString();
-                if (!vcol.Items.Contains(vv)) vv = v0;
-                dgSeq.Rows.Add((i + 1).ToString(), (o.Bend + 1).ToString(),
-                    piece.ButeeInt(o.Bend).ToString("0.#", CultureInfo.InvariantCulture),
-                    o.AngleCible.ToString("0.#", CultureInfo.InvariantCulture),
-                    o.Sens == Sens.Haut ? "Haut" : "Bas", vv, o.Reprise);
+                if (dgSeq.IsCurrentCellInEditMode) dgSeq.EndEdit();
+
+                int cr = dgSeq.CurrentCell?.RowIndex ?? -1, cc = dgSeq.CurrentCell?.ColumnIndex ?? -1;
+
+                var vcol = (DataGridViewComboBoxColumn)dgSeq.Columns["v"];
+                vcol.Items.Clear();
+                foreach (var s in VStrings()) vcol.Items.Add(s);
+                string v0 = VStrings()[0];
+
+                dgSeq.CurrentCell = null;
+                dgSeq.Rows.Clear();
+
+                for (int i = 0; i < piece.Sequence.Count; i++)
+                {
+                    var o = piece.Sequence[i];
+                    string vv = ((int)o.V).ToString();
+                    if (!vcol.Items.Contains(vv)) vv = v0;
+                    dgSeq.Rows.Add((i + 1).ToString(), (o.Bend + 1).ToString(),
+                        piece.ButeeInt(o.Bend).ToString("0.#", CultureInfo.InvariantCulture),
+                        o.AngleCible.ToString("0.#", CultureInfo.InvariantCulture),
+                        o.Sens == Sens.Haut ? "Haut" : "Bas", vv, o.Reprise);
+                }
+
+                int fr = dgSeq.Rows.Add("—", "fin",
+                    piece.ButeeInt(piece.NbPlis).ToString("0.#", CultureInfo.InvariantCulture), "", null, null, false);
+                var frow = dgSeq.Rows[fr];
+                foreach (DataGridViewCell c in frow.Cells) c.ReadOnly = true;
+                frow.Cells["r"].ReadOnly = false;
+                frow.DefaultCellStyle.ForeColor = CFin;
+                frow.DefaultCellStyle.SelectionForeColor = CFin;
+                frow.DefaultCellStyle.BackColor = CLockBg;
+
+                if (nNb != null) nNb.Value = Clamp(nNb, piece.NbPlis);
+
+                if (cr >= 0 && cr < dgSeq.Rows.Count && cc >= 0 && cc < dgSeq.Columns.Count)
+                    dgSeq.CurrentCell = dgSeq.Rows[cr].Cells[cc];
             }
-
-            int fr = dgSeq.Rows.Add("—", "fin",
-                piece.ButeeInt(piece.NbPlis).ToString("0.#", CultureInfo.InvariantCulture), "", null, null, false);
-            var frow = dgSeq.Rows[fr];
-            foreach (DataGridViewCell c in frow.Cells) c.ReadOnly = true;
-            frow.Cells["r"].ReadOnly = false;
-            frow.DefaultCellStyle.ForeColor = CFin;
-            frow.DefaultCellStyle.SelectionForeColor = CFin;
-            frow.DefaultCellStyle.BackColor = CLockBg;
-
-            if (nNb != null) nNb.Value = Clamp(nNb, piece.NbPlis);
-
-            if (cr >= 0 && cr < dgSeq.Rows.Count && cc >= 0 && cc < dgSeq.Columns.Count)
-                dgSeq.CurrentCell = dgSeq.Rows[cr].Cells[cc];
-
-            _load = false;
+            finally { _load = false; _reload = false; }
         }
 
         // relit la grille gauche dans la Piece (source unique de verite)
@@ -598,32 +635,40 @@ namespace SimulateurPliage
             piece.Sequence = list;
         }
 
+        // ajoute une PASSE sur le pli courant (reprise : marquage puis fermeture)
         void AddOp()
         {
-            ReadSeq();
-            int bend = piece.NbPlis > 0 ? piece.NbPlis - 1 : 0;
-            piece.Sequence.Add(new Operation { Bend = bend, AngleCible = 90, Sens = Sens.Haut, V = ParseD(VStrings()[0], 16) });
+            if (piece.NbPlis == 0) { AddBend(); return; }
+            int bend = (step >= 0 && step < piece.Sequence.Count) ? piece.Sequence[step].Bend : piece.NbPlis - 1;
+            var src = (step >= 0 && step < piece.Sequence.Count) ? piece.Sequence[step] : null;
+            piece.Sequence.Add(new Operation
+            {
+                Bend = bend,
+                AngleCible = 90,
+                Sens = src?.Sens ?? Sens.Haut,
+                V = src?.V ?? ParseD(VStrings()[0], 16),
+                Reprise = true
+            });
             ReloadGridsFromPiece(); step = piece.Sequence.Count - 1; Recompute();
         }
 
-        void DelOp()
+        void DelOpAt(int idx)
         {
-            ReadSeq();
-            int idx = dgSeq.CurrentCell != null ? dgSeq.CurrentCell.RowIndex : piece.Sequence.Count - 1;
-            if (idx >= 0 && idx < piece.Sequence.Count) piece.Sequence.RemoveAt(idx);
-            ReloadGridsFromPiece(); step = Math.Max(0, Math.Min(step, piece.Sequence.Count - 1)); Recompute();
+            if (idx < 0 || idx >= piece.Sequence.Count) return;   // la ligne "fin" n'est pas supprimable
+            piece.Sequence.RemoveAt(idx);
+            ReloadGridsFromPiece();
+            step = Math.Max(0, Math.Min(step, piece.Sequence.Count - 1));
+            Recompute();
         }
 
-        void MoveOp(int dir)
+        void MoveOpAt(int idx, int dir)
         {
-            ReadSeq();
-            int idx = dgSeq.CurrentCell != null ? dgSeq.CurrentCell.RowIndex : -1;
             int j = idx + dir;
             if (idx < 0 || idx >= piece.Sequence.Count || j < 0 || j >= piece.Sequence.Count) return;
             (piece.Sequence[idx], piece.Sequence[j]) = (piece.Sequence[j], piece.Sequence[idx]);
             ReloadGridsFromPiece();
-            if (j < dgSeq.Rows.Count) dgSeq.CurrentCell = dgSeq.Rows[j].Cells["pli"];
-            step = j; Recompute();
+            step = j;
+            Recompute();
         }
 
         static double ParseD(object o, double def)
@@ -701,7 +746,6 @@ namespace SimulateurPliage
         {
             rtSeq.Clear();
             var flips = Retournements();
-            bool prev = _load; _load = true;
             for (int i = 0; i < piece.Sequence.Count; i++)
             {
                 var o = piece.Sequence[i];
@@ -728,7 +772,6 @@ namespace SimulateurPliage
                 rtSeq.SelectionColor = (i == step) ? CAccent : col;
                 rtSeq.AppendText(line);
             }
-            _load = prev;
         }
     }
 }
