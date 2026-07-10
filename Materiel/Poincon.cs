@@ -79,13 +79,18 @@ namespace SimulateurPliage.Materiel
             new[] {  -15.000,   90.000 },
         };
 
-        /// <summary>Contour fermé, étiré à la hauteur courante. Utilisé par le rendu et la collision.</summary>
+        /// <summary>
+        /// Contour ferme, etire a la hauteur courante. Le repere de la vue a la BUTEE A DROITE,
+        /// donc on renvoie le contour en miroir : le flanc arriere (25°, col de cygne) se
+        /// retrouve en x positif, cote butee, ou il degage le retour deja plie.
+        /// ContourPts reste inchange.
+        /// </summary>
         public List<double[]> Contour()
         {
             double d = Hauteur - HRef;
             var c = new List<double[]>(ContourPts.Count);
             foreach (var p in ContourPts)
-                c.Add(new[] { p[0], p[1] >= YStretch ? p[1] + d : p[1] });
+                c.Add(new[] { -p[0], p[1] >= YStretch ? p[1] + d : p[1] });
             return c;
         }
 

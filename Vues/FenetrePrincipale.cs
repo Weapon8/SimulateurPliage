@@ -26,6 +26,7 @@ namespace SimulateurPliage.Vues
         VueDeveloppe vueDeveloppe;
         VuePupitre vuePupitre;
         TrackBar tbEtape;
+        Button ongletPupitre, ongletSection, ongletDeveloppe;
         Label lblEtape, lblAlerte;
         RichTextBox rtSequence;
         Panel zoneDroite;
@@ -70,6 +71,11 @@ namespace SimulateurPliage.Vues
                 Padding = new Padding(14, 10, 14, 20), Margin = new Padding(0)
             };
             zoneDroite = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Fond, Margin = new Padding(0) };
+            gauche.Paint += (snd, pe) =>
+            {
+                using var pen = new Pen(Theme.Separateur, 1);
+                pe.Graphics.DrawLine(pen, gauche.Width - 1, 0, gauche.Width - 1, gauche.Height);
+            };
             racine.Controls.Add(gauche, 0, 0);
             racine.Controls.Add(zoneDroite, 1, 0);
 
@@ -152,46 +158,65 @@ namespace SimulateurPliage.Vues
             bas.Controls.Add(rtSequence);
             rtSequence.BringToFront();
 
-            var barre = new Panel { Dock = DockStyle.Top, Height = 52, BackColor = Theme.Fond };
+            var barre = new Panel { Dock = DockStyle.Top, Height = 52, BackColor = Theme.Panneau };
+            barre.Paint += (snd, pe) =>
+            {
+                using var pen = new Pen(Theme.Separateur, 1);
+                pe.Graphics.DrawLine(pen, 0, barre.Height - 1, barre.Width, barre.Height - 1);
+            };
             zoneDroite.Controls.Add(barre);
 
-            var bPrec = Bouton("◀", 44, () => AllerEtape(etape - 1));
-            bPrec.Left = 10; bPrec.Top = 9; bPrec.Height = 34; barre.Controls.Add(bPrec);
-            var bSuiv = Bouton("▶", 44, () => AllerEtape(etape + 1));
-            bSuiv.Left = 58; bSuiv.Top = 9; bSuiv.Height = 34; barre.Controls.Add(bSuiv);
-
-            tbEtape = new TrackBar
-            {
-                Left = 110, Top = 8, Width = 215, Minimum = 0, Maximum = 1,
-                TickStyle = TickStyle.None, BackColor = Theme.Fond
-            };
-            tbEtape.ValueChanged += (s, e) => { if (!_load) AllerEtape(tbEtape.Value); };
-            barre.Controls.Add(tbEtape);
-
-            lblEtape = new Label
-            {
-                Left = 335, Top = 14, Width = 420, ForeColor = Theme.Accent,
-                Font = new Font("Segoe UI", 10, FontStyle.Bold)
-            };
-            barre.Controls.Add(lblEtape);
+            // Trois zones dockees : elles ne peuvent plus se chevaucher quand on redimensionne.
+            // Ordre d'ajout = ordre de reservation de l'espace : droite, gauche, puis le reste.
 
             var onglets = new FlowLayoutPanel
             {
-                Dock = DockStyle.Right, Width = 292, BackColor = Theme.Fond, Padding = new Padding(0, 9, 8, 0)
+                Dock = DockStyle.Right, Width = 306, BackColor = Theme.Panneau,
+                Padding = new Padding(0, 9, 8, 0), Margin = new Padding(0),
+                FlowDirection = FlowDirection.LeftToRight, WrapContents = false
             };
             barre.Controls.Add(onglets);
-            var b1 = Bouton("Section", 84, () => Vue(0)); b1.Height = 34;
-            var b2 = Bouton("Développé", 92, () => Vue(1)); b2.Height = 34;
-            var b3 = Bouton("Pupitre", 84, () => Vue(2)); b3.Height = 34;
-            onglets.Controls.Add(b1); onglets.Controls.Add(b2); onglets.Controls.Add(b3);
 
-            vueSection = new VueSection { Dock = DockStyle.Fill };
+            ongletPupitre   = Onglet("Pupitre", 92, () => Vue(0));
+            ongletSection   = Onglet("Section", 92, () => Vue(1));
+            ongletDeveloppe = Onglet("Développé", 100, () => Vue(2));
+            onglets.Controls.Add(ongletPupitre);
+            onglets.Controls.Add(ongletSection);
+            onglets.Controls.Add(ongletDeveloppe);
+
+            var navig = new Panel { Dock = DockStyle.Left, Width = 330, BackColor = Theme.Panneau };
+            barre.Controls.Add(navig);
+
+            var bPrec = Bouton("◀", 44, () => AllerEtape(etape - 1));
+            bPrec.Left = 10; bPrec.Top = 9; bPrec.Height = 34; navig.Controls.Add(bPrec);
+            var bSuiv = Bouton("▶", 44, () => AllerEtape(etape + 1));
+            bSuiv.Left = 58; bSuiv.Top = 9; bSuiv.Height = 34; navig.Controls.Add(bSuiv);
+
+            tbEtape = new TrackBar
+            {
+                Left = 110, Top = 8, Width = 210, Minimum = 0, Maximum = 1,
+                TickStyle = TickStyle.None, BackColor = Theme.Panneau
+            };
+            tbEtape.ValueChanged += (s, e) => { if (!_load) AllerEtape(tbEtape.Value); };
+            navig.Controls.Add(tbEtape);
+
+            lblEtape = new Label
+            {
+                Dock = DockStyle.Fill, ForeColor = Theme.Accent, AutoEllipsis = true,
+                TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(14, 0, 10, 0),
+                Font = new Font("Segoe UI", 10, FontStyle.Bold)
+            };
+            barre.Controls.Add(lblEtape);
+            lblEtape.BringToFront();
+
+            vuePupitre = new VuePupitre { Dock = DockStyle.Fill };
+            vueSection = new VueSection { Dock = DockStyle.Fill, Visible = false };
             vueDeveloppe = new VueDeveloppe { Dock = DockStyle.Fill, Visible = false };
-            vuePupitre = new VuePupitre { Dock = DockStyle.Fill, Visible = false };
+            zoneDroite.Controls.Add(vuePupitre);
             zoneDroite.Controls.Add(vueSection);
             zoneDroite.Controls.Add(vueDeveloppe);
-            zoneDroite.Controls.Add(vuePupitre);
-            vueSection.BringToFront();
+            vuePupitre.BringToFront();
+            MajOnglets(0);
             vueSection.Outillage(plieuse, poincon, matrice, atelier.Embase);
 
             vuePupitre.Edited += () => { ChargerPans(); Recalculer(); };
@@ -207,12 +232,42 @@ namespace SimulateurPliage.Vues
 
         void Vue(int i)
         {
-            vueSection.Visible = i == 0;
-            vueDeveloppe.Visible = i == 1;
-            vuePupitre.Visible = i == 2;
-            if (i == 0) vueSection.BringToFront();
-            else if (i == 1) vueDeveloppe.BringToFront();
-            else vuePupitre.BringToFront();
+            vuePupitre.Visible = i == 0;
+            vueSection.Visible = i == 1;
+            vueDeveloppe.Visible = i == 2;
+            if (i == 0) vuePupitre.BringToFront();
+            else if (i == 1) vueSection.BringToFront();
+            else vueDeveloppe.BringToFront();
+            MajOnglets(i);
+        }
+
+        /// <summary>Onglet actif : fond accentue, bord orange. Les autres restent neutres.</summary>
+        void MajOnglets(int actif)
+        {
+            var l = new[] { ongletPupitre, ongletSection, ongletDeveloppe };
+            for (int i = 0; i < l.Length; i++)
+            {
+                if (l[i] == null) continue;
+                bool on = i == actif;
+                l[i].BackColor = on ? Theme.Champ : Theme.Bouton;
+                l[i].ForeColor = on ? Theme.Accent : Theme.Discret;
+                l[i].FlatAppearance.BorderColor = on ? Theme.Accent : Theme.Bord;
+                l[i].FlatAppearance.BorderSize = on ? 1 : 1;
+            }
+        }
+
+        Button Onglet(string t, int w, Action onClick)
+        {
+            var b = new Button
+            {
+                Text = t, Width = w, Height = 34, FlatStyle = FlatStyle.Flat,
+                BackColor = Theme.Bouton, ForeColor = Theme.Discret,
+                Margin = new Padding(3, 0, 3, 0),
+                Font = new Font("Segoe UI", 9.5f, FontStyle.Bold)
+            };
+            b.FlatAppearance.BorderColor = Theme.Bord;
+            b.Click += (s, e) => onClick();
+            return b;
         }
 
         // ------------------------------------------------- édition pièce --

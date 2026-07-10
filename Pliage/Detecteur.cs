@@ -52,12 +52,18 @@ namespace SimulateurPliage.Pliage
 
             var segments = Segments(st);
 
+            // Autour du sommet, la tole s'enroule sur la pointe : tout croisement dans ce
+            // rayon est du formage, pas une collision. (Sommet vif cote tole, pointe ronde
+            // cote outil : sans ca, chaque pli sort un faux positif.)
+            double rayonMort = ep + (poincon?.R ?? 1.0) + 2.0;
+
             bool hitP = false, hitM = false, hitPP = false, hitSem = false;
             foreach (var (a, b) in segments)
             {
                 if (EnFormage(a) && EnFormage(b)) continue;
 
-                if (!hitP && poinconLev != null && !(DansAme(a) && DansAme(b)) && Croise(a, b, poinconLev))
+                if (!hitP && poinconLev != null && !(DansAme(a) && DansAme(b))
+                    && CroiseHorsPointe(a, b, poinconLev, rayonMort))
                     hitP = true;
                 if (!hitM && matriceC != null && (a.Y < -0.6 || b.Y < -0.6) && Croise(a, b, matriceC))
                     hitM = true;
@@ -141,6 +147,32 @@ namespace SimulateurPliage.Pliage
                 if (Intersecte(a, b, new Pt(poly[j][0], poly[j][1]), new Pt(poly[i][0], poly[i][1])))
                     return true;
             return false;
+        }
+
+        /// <summary>Croisement reel, en ignorant ceux qui tombent dans le rayon de formage
+        /// autour du sommet du pli (origine du repere).</summary>
+        static bool CroiseHorsPointe(Pt a, Pt b, List<double[]> poly, double rayonMort)
+        {
+            double r2 = rayonMort * rayonMort;
+            for (int i = 0, j = poly.Count - 1; i < poly.Count; j = i++)
+            {
+                var p3 = new Pt(poly[j][0], poly[j][1]);
+                var p4 = new Pt(poly[i][0], poly[i][1]);
+                if (!Intersecte(a, b, p3, p4)) continue;
+                if (Point(a, b, p3, p4, out var ip) && ip.X * ip.X + ip.Y * ip.Y <= r2) continue;
+                return true;
+            }
+            return false;
+        }
+
+        static bool Point(Pt p1, Pt p2, Pt p3, Pt p4, out Pt ip)
+        {
+            ip = default;
+            double d = (p2.X - p1.X) * (p4.Y - p3.Y) - (p2.Y - p1.Y) * (p4.X - p3.X);
+            if (Math.Abs(d) < 1e-12) return false;
+            double t = ((p3.X - p1.X) * (p4.Y - p3.Y) - (p3.Y - p1.Y) * (p4.X - p3.X)) / d;
+            ip = new Pt(p1.X + t * (p2.X - p1.X), p1.Y + t * (p2.Y - p1.Y));
+            return true;
         }
 
         static bool Intersecte(Pt p1, Pt p2, Pt p3, Pt p4)

@@ -74,9 +74,9 @@ namespace SimulateurPliage.Pliage
         /// <summary>
         /// Place le sommet actif a l'origine et aligne la BISSECTRICE du pli sur +Y
         /// (l'axe du poincon) : les deux ailes s'ecartent symetriquement autour du bec.
-        /// Le pan AMONT est couche a gauche (arriere machine) : on pousse la piece en
-        /// butee, on ne la retourne pas. Le retour deja plie remonte donc cote butee,
-        /// et c'est le col de cygne (flanc arriere a 25°) qui lui laisse le passage.
+        /// Le pan AMONT est couche a DROITE (cote butee) : on pousse la piece en butee,
+        /// on ne la retourne pas. Le retour deja plie remonte donc cote butee, et c'est
+        /// le col de cygne (flanc arriere) qui lui laisse le passage.
         /// A 180° la bissectrice est indefinie : on couche le pan a l'horizontale.
         /// </summary>
         static void Ancrer(List<Pt> chaine, int sommet)
@@ -98,7 +98,8 @@ namespace SimulateurPliage.Pliage
                 chaine[i] = new Pt(chaine[i].X * cs - chaine[i].Y * sn,
                                    chaine[i].X * sn + chaine[i].Y * cs);
 
-            if (chaine[sommet - 1].X > 0)
+            // butee a DROITE de la vue : le pan amont doit reposer en x positif
+            if (chaine[sommet - 1].X < 0)
                 for (int i = 0; i < chaine.Count; i++)
                     chaine[i] = new Pt(-chaine[i].X, chaine[i].Y);
         }
