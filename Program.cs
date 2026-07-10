@@ -1,5 +1,6 @@
 using System;
 using System.Windows.Forms;
+using SimulateurPliage.Vues;
 
 namespace SimulateurPliage
 {
@@ -11,7 +12,7 @@ namespace SimulateurPliage
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
-            Application.Run(new MainForm());
+            Application.Run(new FenetrePrincipale());
         }
     }
 }

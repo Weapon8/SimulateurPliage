@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
 using System.Windows.Forms;
+using SimulateurPliage.Materiel;
+using SimulateurPliage.Pliage;
 
-namespace SimulateurPliage
+namespace SimulateurPliage.Vues
 {
     // Vue "pupitre" facon commande numerique Cybelec/Delem, EDITABLE.
     // Une ligne = une operation de pliage. La colonne R (butee) EST le pan cote butee.
@@ -15,7 +17,7 @@ namespace SimulateurPliage
     // detruit le controle d'edition que WinForms vient d'installer -> la cellule devient
     // impossible a saisir. Les couleurs sont calculees a la volee dans CellFormatting,
     // qui se declenche au dessin et n'interfere avec rien.
-    public class PupitrePanel : Panel
+    public class VuePupitre : Panel
     {
         public event Action Edited;                 // une valeur a change
         public event Action<int> StepPicked;        // l'operateur a clique une ligne
@@ -27,12 +29,12 @@ namespace SimulateurPliage
         public event Action<int> DeleteRowRequested;// ✕ : supprime la passe (et le pli si derniere)
         public event Action<int> MoveOpRequested;
 
-        readonly MachineConfig cfg;
+        Plieuse plieuse;
         Piece piece;
         int cur = -1;
-        Poincon poin;
-        Matrice mat;
-        Embase emb;
+        Poincon poincon;
+        Matrice matrice;
+        Embase embase;
         bool _load;
         bool[] hits = new bool[0];   // collision par operation, recalcule a chaque etape
 
@@ -57,9 +59,8 @@ namespace SimulateurPliage
 
         int FinRow => piece != null ? piece.Sequence.Count : -1;
 
-        public PupitrePanel(MachineConfig c)
+        public VuePupitre()
         {
-            cfg = c;
             DoubleBuffered = true;
             BackColor = CBg;
             Padding = new Padding(14, 12, 14, 10);
@@ -248,14 +249,14 @@ namespace SimulateurPliage
         }
 
         // ---- changement de STRUCTURE : on reconstruit les lignes ----
-        public void SetData(Piece p, int step, Poincon pn, Matrice mt, Embase eb)
+        public void Afficher(Piece p, int step, Plieuse pl, Poincon po, Matrice ma, Embase em)
         {
-            piece = p; cur = step; poin = pn; mat = mt; emb = eb;
+            piece = p; cur = step; plieuse = pl; poincon = po; matrice = ma; embase = em;
             Rebuild();
         }
 
         // ---- changement d'ETAPE seul : on recalcule les couleurs et on repeint ----
-        public void SetStep(int step)
+        public void ChangerEtape(int step)
         {
             if (piece == null) return;
             cur = step;
@@ -278,14 +279,14 @@ namespace SimulateurPliage
             if (piece == null) { hits = new bool[0]; return; }
             var h = new bool[piece.Sequence.Count];
             for (int i = 0; i < h.Length; i++)
-                h[i] = FoldEngine.Build(piece, i, cfg, poin, mat, emb).Collisions.Count > 0;
+                h[i] = Moteur.Construire(piece, i, plieuse, poincon, matrice, embase).Collisions.Count > 0;
             hits = h;
         }
 
         string[] VStrings()
         {
             var l = new List<string>();
-            if (mat != null) foreach (var vf in mat.Vs) l.Add(((int)vf.V).ToString());
+            if (matrice != null) foreach (var vf in matrice.Vs) l.Add(((int)vf.V).ToString());
             if (l.Count == 0) l.Add("16");
             return l.ToArray();
         }
