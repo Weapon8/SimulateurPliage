@@ -340,29 +340,47 @@ namespace SimulateurPliage.Vues
             Recalculer();
         }
 
-        /// <summary>Cherche un ordre de pliage sans collision (recherche en profondeur).</summary>
+        /// <summary>
+        /// Cherche un ordre de pliage sans collision. Pour chaque pli on essaie les quatre
+        /// engagements, du moins manipulé au plus manipulé :
+        ///   direct  ·  rotation 180° à plat (⇄)  ·  retourné dessus/dessous (⇅)  ·  les deux.
+        /// </summary>
         void OrdreAuto()
         {
-            var ops = new List<Operation>(piece.Sequence);
+            var initial = new List<Operation>(piece.Sequence);
             var ordre = new List<Operation>();
-            var restant = new List<Operation>(ops);
+            var restant = new List<Operation>(initial);
 
             if (Explorer(ordre, restant))
             {
                 piece.Sequence = ordre;
                 etape = 0;
                 Recalculer();
-                MessageBox.Show("Ordre sans collision trouvé.", "Ordre auto",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                int plat = 0, face = 0;
+                foreach (var o in piece.Sequence)
+                {
+                    if (o.ButeeAval) plat++;
+                    if (o.Retournee) face++;
+                }
+                string m = "Ordre sans collision trouvé.";
+                if (plat > 0) m += $"\n{plat} rotation(s) 180° à plat (⇄).";
+                if (face > 0) m += $"\n{face} retournement(s) dessus/dessous (⇅).";
+                if (plat == 0 && face == 0) m += "\nAucune manipulation de la pièce.";
+                MessageBox.Show(m, "Ordre auto", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             else
             {
-                piece.Sequence = ops;
+                piece.Sequence = initial;
                 Recalculer();
-                MessageBox.Show("Aucun ordre sans collision trouvé.", "Ordre auto",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("Aucun ordre sans collision trouvé, même en retournant la pièce.",
+                    "Ordre auto", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
+
+        // (ButeeAval, Retournee) du moins manipulé au plus manipulé
+        static readonly (bool aval, bool face)[] Engagements =
+            { (false, false), (true, false), (false, true), (true, true) };
 
         bool Explorer(List<Operation> ordre, List<Operation> restant)
         {
@@ -371,16 +389,26 @@ namespace SimulateurPliage.Vues
             for (int i = 0; i < restant.Count; i++)
             {
                 var op = restant[i];
-                ordre.Add(op); restant.RemoveAt(i);
+                restant.RemoveAt(i);
 
-                var sauve = piece.Sequence;
-                piece.Sequence = new List<Operation>(ordre);
-                bool ok = !Moteur.Construire(piece, ordre.Count - 1, plieuse, poincon, matrice, atelier.Embase).Bloque;
-                piece.Sequence = sauve;
+                bool memoA = op.ButeeAval, memoF = op.Retournee;
+                foreach (var (aval, face) in Engagements)
+                {
+                    op.ButeeAval = aval;
+                    op.Retournee = face;
+                    ordre.Add(op);
 
-                if (ok && Explorer(ordre, restant)) return true;
+                    var sauve = piece.Sequence;
+                    piece.Sequence = new List<Operation>(ordre);
+                    bool ok = !Moteur.Construire(piece, ordre.Count - 1, plieuse, poincon, matrice, atelier.Embase).Bloque;
+                    piece.Sequence = sauve;
 
-                restant.Insert(i, op); ordre.RemoveAt(ordre.Count - 1);
+                    if (ok && Explorer(ordre, restant)) return true;
+                    ordre.RemoveAt(ordre.Count - 1);
+                }
+                op.ButeeAval = memoA; op.Retournee = memoF;
+
+                restant.Insert(i, op);
             }
             return false;
         }

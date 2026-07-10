@@ -20,7 +20,8 @@ namespace SimulateurPliage.Pliage
         public Sens Sens = Sens.Haut;
         public double V = 16;             // ouverture matrice
         public bool Reprise;              // pli en plusieurs passes
-        public bool ButeeAval;            // la butée lit le pan aval au lieu du pan amont
+        public bool ButeeAval;            // rotation 180° À PLAT (bout pour bout) : la butée lit le pan aval
+        public bool Retournee;            // retournement DESSUS/DESSOUS : les plis déjà faits pointent en bas
     }
 
     /// <summary>La tôle : ses pans, son épaisseur, sa séquence de pliage.</summary>
@@ -85,13 +86,18 @@ namespace SimulateurPliage.Pliage
             return a;
         }
 
+        /// <summary>
+        /// Chevetre de reference : 5 pans, 4 plis a 90° Haut.
+        ///   20 - 60 - 100 - 60 - 20   (developpe 260)
+        /// Dans cet ordre naif (1,2,3,4) le pli 4 tape le poincon : c'est reel.
+        /// L'atelier retourne la piece bout pour bout apres le pli 2 et fait 4 puis 3.
+        /// Le bouton "Ordre auto" doit retrouver cette sequence tout seul.
+        /// </summary>
         public static Piece Demo()
         {
-            // Chevetre droit 20 / 100 / 20 : on pousse en butee, jamais de retournement.
-            // Butee a 20 au pli 1, a 100 au pli 2 ; il reste 20 cote operateur.
             var p = new Piece { Epaisseur = 1.0 };
-            p.Segments.AddRange(new double[] { 20, 100, 20 });
-            for (int b = 0; b < 2; b++)
+            p.Segments.AddRange(new double[] { 20, 60, 100, 60, 20 });
+            for (int b = 0; b < 4; b++)
                 p.Sequence.Add(new Operation { Bend = b, AngleCible = 90, Sens = Sens.Haut, V = 16 });
             return p;
         }

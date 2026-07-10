@@ -120,8 +120,9 @@ namespace SimulateurPliage.Vues
             Fill(dg, new DataGridViewTextBoxColumn { Name = "ang", HeaderText = "ANGLE °" }, 16);
             Fill(dg, ComboCol("sens", "SENS", new[] { "Haut", "Bas" }), 16);
             Fill(dg, ComboCol("v", "V", new[] { "16" }), 10);
-            Fill(dg, new DataGridViewCheckBoxColumn { Name = "inv", HeaderText = "⇄ BUTÉE" }, 12);
-            Fill(dg, new DataGridViewCheckBoxColumn { Name = "rep", HeaderText = "REPRISE" }, 12);
+            Fill(dg, new DataGridViewCheckBoxColumn { Name = "inv", HeaderText = "⇄ À PLAT" }, 12);
+            Fill(dg, new DataGridViewCheckBoxColumn { Name = "ret", HeaderText = "⇅ FACE" }, 11);
+            Fill(dg, new DataGridViewCheckBoxColumn { Name = "rep", HeaderText = "REPRISE" }, 11);
             Fill(dg, DelCol(), 8);
 
             // non editables : N°, PLI et ✕ ; et tout sauf R sur la ligne "fin".
@@ -271,7 +272,7 @@ namespace SimulateurPliage.Vues
             string ep = piece.Epaisseur.ToString("0.##", CultureInfo.InvariantCulture);
             string smode = piece.CotesExterieures ? "extérieures" : "intérieures";
             lblFoot.Text = $"L développé {dev:0.#} mm  ·  {piece.Segments.Count} pans  ·  ép {ep} mm  ·  cotes {smode}  ·  " +
-                           "R = cote intérieure lue à la butée  ·  ⇄ = pièce engagée à l'envers, la butée lit le pan aval  ·  ✕ supprime la passe";
+                           "R = cote lue à la butée  ·  ⇄ = rotation 180° à plat  ·  ⇅ = retournée dessus/dessous  ·  ✕ supprime la passe";
         }
 
         void RecalcHits()
@@ -326,11 +327,12 @@ namespace SimulateurPliage.Vues
                         o.Sens == Sens.Haut ? "Haut" : "Bas",
                         vv,
                         o.ButeeAval,
+                        o.Retournee,
                         o.Reprise);
                 }
 
                 // ligne FIN : le dernier pan, sans pli apres lui. Pas de bouton ✕ dessus.
-                int fr = dg.Rows.Add("—", "fin", piece.ButeeInt(piece.NbPlis).ToString("0.0", CultureInfo.InvariantCulture), "", null, null, false, false);
+                int fr = dg.Rows.Add("—", "fin", piece.ButeeInt(piece.NbPlis).ToString("0.0", CultureInfo.InvariantCulture), "", null, null, false, false, false);
                 dg.Rows[fr].Cells["del"] = new DataGridViewTextBoxCell { Value = "" };
 
                 if (cr >= 0 && cr < dg.Rows.Count && cc >= 0 && cc < dg.Columns.Count)
@@ -377,6 +379,7 @@ namespace SimulateurPliage.Vues
                     Sens = (row.Cells["sens"].Value as string) == "Bas" ? Sens.Bas : Sens.Haut,
                     V = ParseD(row.Cells["v"].Value, 16),
                     ButeeAval = aval,
+                    Retournee = row.Cells["ret"].Value is bool br && br,
                     Reprise = row.Cells["rep"].Value is bool b && b
                 });
             }
