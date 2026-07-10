@@ -87,18 +87,18 @@ namespace SimulateurPliage.Pliage
         }
 
         /// <summary>
-        /// Chevetre de reference : 5 pans, 4 plis a 90° Haut.
-        ///   20 - 60 - 100 - 60 - 20   (developpe 260)
-        /// Dans cet ordre naif (1,2,3,4) le pli 4 tape le poincon : c'est reel.
-        /// L'atelier retourne la piece bout pour bout apres le pli 2 et fait 4 puis 3.
-        /// Le bouton "Ordre auto" doit retrouver cette sequence tout seul.
+        /// Chevetre de reference : aile 20 · joue 60 · fond 100 · joue 60 · aile 20.
+        /// Les plis ALTERNENT : Bas, Haut, Haut, Bas — les joues descendent, le fond
+        /// remonte, les ailes repartent a plat. Encombrement fini 140 x 60 mm.
+        /// (Quatre plis dans le meme sens replieraient la tole sur elle-meme.)
         /// </summary>
         public static Piece Demo()
         {
             var p = new Piece { Epaisseur = 1.0 };
             p.Segments.AddRange(new double[] { 20, 60, 100, 60, 20 });
+            var sens = new[] { Sens.Bas, Sens.Haut, Sens.Haut, Sens.Bas };
             for (int b = 0; b < 4; b++)
-                p.Sequence.Add(new Operation { Bend = b, AngleCible = 90, Sens = Sens.Haut, V = 16 });
+                p.Sequence.Add(new Operation { Bend = b, AngleCible = 90, Sens = sens[b], V = 16 });
             return p;
         }
     }

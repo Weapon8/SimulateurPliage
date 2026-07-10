@@ -80,17 +80,19 @@ namespace SimulateurPliage.Materiel
         };
 
         /// <summary>
-        /// Contour ferme, etire a la hauteur courante. Le repere de la vue a la BUTEE A DROITE,
-        /// donc on renvoie le contour en miroir : le flanc arriere (25°, col de cygne) se
-        /// retrouve en x positif, cote butee, ou il degage le retour deja plie.
-        /// ContourPts reste inchange.
+        /// Contour ferme, etire a la hauteur courante. AUCUN miroir.
+        /// Vue : butee a droite, operateur a gauche.
+        /// Le flanc ETROIT (x jusqu'a +11) est le degagement du col de cygne : il est en
+        /// retrait et regarde deja la butee, c'est lui qui recoit le retour deja plie.
+        /// Le flanc large (x jusqu'a -15) est le corps deporte, cote operateur.
+        /// Valide sur le chevetre 20/60/100/60/20 et le fourreau a crosse 100/150/30/20.
         /// </summary>
         public List<double[]> Contour()
         {
             double d = Hauteur - HRef;
             var c = new List<double[]>(ContourPts.Count);
             foreach (var p in ContourPts)
-                c.Add(new[] { -p[0], p[1] >= YStretch ? p[1] + d : p[1] });
+                c.Add(new[] { p[0], p[1] >= YStretch ? p[1] + d : p[1] });
             return c;
         }
 
