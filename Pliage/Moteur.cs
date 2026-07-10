@@ -65,16 +65,19 @@ namespace SimulateurPliage.Pliage
             for (int i = 0; i <= sommet; i++) st.PanArriere.Add(chaine[i]);
             for (int i = sommet; i < chaine.Count; i++) st.Formage.Add(chaine[i]);
 
-            st.ButeeDistance = st.Op.Bend < p.Segments.Count ? p.Segments[st.Op.Bend] : 0;
+            // on pousse la piece en butee : elle lit le pan amont (20 puis 100 sur un chevetre)
+            st.ButeeDistance = p.ButeeInt(st.Op.Bend);
             st.Collisions = Detecteur.Analyser(st, p, plieuse, poincon, matrice, embase);
             return st;
         }
 
         /// <summary>
-        /// Place le sommet actif a l'origine et aligne la BISSECTRICE du pli sur +Y,
-        /// c'est-a-dire sur l'axe du poincon : les deux ailes s'ecartent symetriquement
-        /// de part et d'autre du bec, comme sur la machine. A 180° (tole a plat) la
-        /// bissectrice est indefinie : on couche le pan a l'horizontale.
+        /// Place le sommet actif a l'origine et aligne la BISSECTRICE du pli sur +Y
+        /// (l'axe du poincon) : les deux ailes s'ecartent symetriquement autour du bec.
+        /// Le pan AMONT est couche a gauche (arriere machine) : on pousse la piece en
+        /// butee, on ne la retourne pas. Le retour deja plie remonte donc cote butee,
+        /// et c'est le col de cygne (flanc arriere a 25°) qui lui laisse le passage.
+        /// A 180° la bissectrice est indefinie : on couche le pan a l'horizontale.
         /// </summary>
         static void Ancrer(List<Pt> chaine, int sommet)
         {
@@ -95,7 +98,6 @@ namespace SimulateurPliage.Pliage
                 chaine[i] = new Pt(chaine[i].X * cs - chaine[i].Y * sn,
                                    chaine[i].X * sn + chaine[i].Y * cs);
 
-            // le pan cote butee se lit a gauche (arriere machine)
             if (chaine[sommet - 1].X > 0)
                 for (int i = 0; i < chaine.Count; i++)
                     chaine[i] = new Pt(-chaine[i].X, chaine[i].Y);

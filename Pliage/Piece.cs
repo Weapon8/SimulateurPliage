@@ -87,8 +87,10 @@ namespace SimulateurPliage.Pliage
 
         public static Piece Demo()
         {
+            // Chevetre droit 20 / 100 / 20 : on pousse en butee, jamais de retournement.
+            // Butee a 20 au pli 1, a 100 au pli 2 ; il reste 20 cote operateur.
             var p = new Piece { Epaisseur = 1.0 };
-            p.Segments.AddRange(new double[] { 40, 120, 40 });
+            p.Segments.AddRange(new double[] { 20, 100, 20 });
             for (int b = 0; b < 2; b++)
                 p.Sequence.Add(new Operation { Bend = b, AngleCible = 90, Sens = Sens.Haut, V = 16 });
             return p;
