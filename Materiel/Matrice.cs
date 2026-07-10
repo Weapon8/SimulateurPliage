@@ -20,8 +20,8 @@ namespace SimulateurPliage.Materiel
     public sealed class Matrice
     {
         public string Nom = "2045 / 45°";
-        public double BlocLargeur = 60;
-        public double Hauteur = 120;
+        public double BlocLargeur = 60;   // largeur du bloc (mesure photo ~44, corrigée perspective)
+        public double Hauteur = 48;       // hauteur du bloc sous la face — estimée sur photo, à ajuster
         public bool MultiV = false;
         public List<VForm> Vs = new();
 
@@ -90,7 +90,7 @@ namespace SimulateurPliage.Materiel
     {
         public double PortePoinconH = 60;
         public double PortePoinconLg = 40;
-        public double SemelleH = 60;
+        public double SemelleH = 25;      // porte-matrice sous le bloc — estimé sur photo (~22)
         public double SemelleLg = 90;
     }
 }
