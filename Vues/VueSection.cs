@@ -43,7 +43,9 @@ namespace SimulateurPliage.Vues
             if (etat?.Op == null) { Centre(g, "Ajoute des plis et une séquence"); return; }
 
             double ep = Math.Max(0.2, piece.Epaisseur);
-            double assise = ep / 2.0;   // la face basse du pan repose sur la matrice (y = 0)
+            // Ancrage bissectrice : le sommet du pli est a l'origine, sous la pointe du
+            // poincon. La face haute de la tole est donc a y = +ep/2 au sommet.
+            double assise = 0;
 
             var matriceC = matrice?.Contour(etat.Op.V);
             var poinconC = poincon?.Contour();
@@ -54,7 +56,7 @@ namespace SimulateurPliage.Vues
             Grille(g);
             DessinerEmbases(g, ep, matriceC);
             if (matriceC != null) Polygone(g, matriceC, 0, Theme.Matrice, Color.FromArgb(110, 120, 132));
-            if (poinconC != null) Polygone(g, poinconC, ep, Theme.Outil, Color.FromArgb(130, 138, 150));
+            if (poinconC != null) Polygone(g, poinconC, ep / 2.0, Theme.Outil, Color.FromArgb(130, 138, 150));
             HauteurLibre(g, hLibre);
             DessinerTole(g, ep, assise);
             Legende(g);
@@ -73,7 +75,7 @@ namespace SimulateurPliage.Vues
             foreach (var q in etat.PanArriere) Acc(q.X, q.Y + assise);
             foreach (var q in etat.Formage) Acc(q.X, q.Y + assise);
             if (matriceC != null) foreach (var p in matriceC) Acc(p[0], p[1]);
-            if (poinconC != null) foreach (var p in poinconC) Acc(p[0], p[1] + ep);
+            if (poinconC != null) foreach (var p in poinconC) Acc(p[0], p[1] + ep / 2.0);
 
             double dx = Math.Max(1, maxX - minX), dy = Math.Max(1, maxY - minY);
             const double m = 40;
@@ -92,7 +94,7 @@ namespace SimulateurPliage.Vues
 
             if (embase.PortePoinconLg > 0 && embase.PortePoinconH > 0)
             {
-                double haut = (poincon?.Hauteur ?? 120) + ep;
+                double haut = (poincon?.Hauteur ?? 120) + ep / 2.0;
                 double w = embase.PortePoinconLg / 2;
                 g.FillPolygon(b, new[]
                 {

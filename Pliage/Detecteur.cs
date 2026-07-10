@@ -24,7 +24,7 @@ namespace SimulateurPliage.Pliage
             if (poincon != null)
             {
                 poinconLev = new List<double[]>();
-                foreach (var q in poincon.Contour()) poinconLev.Add(new[] { q[0], q[1] + ep });
+                foreach (var q in poincon.Contour()) poinconLev.Add(new[] { q[0], q[1] + ep / 2.0 });
             }
 
             var vf = matrice?.VProche(st.Op.V);
@@ -48,7 +48,7 @@ namespace SimulateurPliage.Pliage
             bool EnFormage(Pt q) => q.Y <= zoneY && q.Y >= -2 && Math.Abs(q.X) <= zoneX;
 
             // Dans l'âme du poinçon : la tôle épouse l'outil, pas une collision.
-            bool DansAme(Pt q) => poincon != null && poincon.Contient(q.X, q.Y - ep);
+            bool DansAme(Pt q) => poincon != null && poincon.Contient(q.X, q.Y - ep / 2.0);
 
             var segments = Segments(st);
 

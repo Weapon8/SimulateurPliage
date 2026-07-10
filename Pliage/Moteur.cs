@@ -70,25 +70,41 @@ namespace SimulateurPliage.Pliage
             return st;
         }
 
-        /// <summary>Place le sommet actif à l'origine, couche le pan arrière sur -X, oriente le formage vers +Y.</summary>
+        /// <summary>
+        /// Place le sommet actif a l'origine et aligne la BISSECTRICE du pli sur +Y,
+        /// c'est-a-dire sur l'axe du poincon : les deux ailes s'ecartent symetriquement
+        /// de part et d'autre du bec, comme sur la machine. A 180° (tole a plat) la
+        /// bissectrice est indefinie : on couche le pan a l'horizontale.
+        /// </summary>
         static void Ancrer(List<Pt> chaine, int sommet)
         {
             Pt o = chaine[sommet];
             for (int i = 0; i < chaine.Count; i++)
                 chaine[i] = new Pt(chaine[i].X - o.X, chaine[i].Y - o.Y);
 
-            Pt arriere = chaine[sommet - 1];
-            double rot = Math.PI - Math.Atan2(arriere.Y, arriere.X);
+            Pt u1 = Unitaire(chaine[sommet - 1]);
+            Pt u2 = sommet + 1 < chaine.Count ? Unitaire(chaine[sommet + 1]) : new Pt(-u1.X, -u1.Y);
+
+            double bx = u1.X + u2.X, by = u1.Y + u2.Y;
+            if (Math.Sqrt(bx * bx + by * by) < 1e-6) { bx = -u1.Y; by = u1.X; }   // pli a plat
+            Pt b = Unitaire(new Pt(bx, by));
+
+            double rot = Math.PI / 2 - Math.Atan2(b.Y, b.X);
             double cs = Math.Cos(rot), sn = Math.Sin(rot);
             for (int i = 0; i < chaine.Count; i++)
                 chaine[i] = new Pt(chaine[i].X * cs - chaine[i].Y * sn,
                                    chaine[i].X * sn + chaine[i].Y * cs);
 
-            double somme = 0; int n = 0;
-            for (int i = sommet + 1; i < chaine.Count; i++) { somme += chaine[i].Y; n++; }
-            if (n > 0 && somme < 0)
+            // le pan cote butee se lit a gauche (arriere machine)
+            if (chaine[sommet - 1].X > 0)
                 for (int i = 0; i < chaine.Count; i++)
-                    chaine[i] = new Pt(chaine[i].X, -chaine[i].Y);
+                    chaine[i] = new Pt(-chaine[i].X, chaine[i].Y);
+        }
+
+        static Pt Unitaire(Pt p)
+        {
+            double m = Math.Sqrt(p.X * p.X + p.Y * p.Y);
+            return m > 1e-9 ? new Pt(p.X / m, p.Y / m) : new Pt(0, 0);
         }
     }
 }
