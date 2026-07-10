@@ -17,7 +17,7 @@ namespace SimulateurPliage
         public string Nom = "Rolleri P.120.35.R3";
         public double Hauteur  = 120;   // hauteur totale REGLABLE (etire le fut droit)
         public double AngleDeg = 35;    // bec total (avant 10° + arriere 25°)
-        public double R        = 3.0;   // pointe R3
+        public double R        = 1.0;   // pointe R1 (celui monte sur la Loire Safe 4 m)
         public double CorpsLg  = 26;    // corps
 
         const double HRef     = 120.0;  // hauteur de reference du contour ci-dessous

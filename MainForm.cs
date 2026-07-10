@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Globalization;
 using System.Windows.Forms;
 
@@ -17,14 +17,14 @@ namespace SimulateurPliage
         static readonly Color CMuted  = Color.FromArgb(138, 149, 162);
         static readonly Color CAccent = Color.FromArgb(255, 122, 26);
         static readonly Color CBtn    = Color.FromArgb(43, 49, 59);
+        static readonly Color CInk    = Color.FromArgb(18, 21, 27);
         static readonly Color CGrey   = Color.FromArgb(70, 78, 90);
         static readonly Color CSep    = Color.FromArgb(46, 53, 63);
         static readonly Color CBleu   = Color.FromArgb(63, 131, 235);   // pli direct
         static readonly Color CVert   = Color.FromArgb(63, 185, 80);    // pli avec reprise
-        static readonly Color CRouge  = Color.FromArgb(229, 83, 75);    // collision / suppression
-        static readonly Color CFin    = Color.FromArgb(120, 130, 145);  // ligne "fin"
-        static readonly Color CCurBg  = Color.FromArgb(40, 30, 12);
-        static readonly Color CLockBg = Color.FromArgb(31, 36, 44);
+        static readonly Color CRouge  = Color.FromArgb(229, 83, 75);    // collision
+        static readonly Color CTool   = Color.FromArgb(120, 128, 140);  // outils
+        static readonly Color CDie    = Color.FromArgb(90, 98, 110);
 
         readonly MachineConfig cfg = new();
         ToolLib lib;
@@ -32,75 +32,34 @@ namespace SimulateurPliage
         Matrice curMat;
         Piece piece = Piece.Demo();
         int step = 0;
-        bool _load;      // remplissage de grille en cours : on ignore les evenements
-        bool[] seqHits = new bool[0];   // collision par operation (pour CellFormatting)
+        bool _load;
 
-        NumericUpDown nNb, nEp, nLong;
-        ComboBox cbCotes, cbPoin, cbMat, cbMateriau;
-        DataGridView dgSeq;
+        NumericUpDown nNb, nEp;
+        ComboBox cbCotes, cbPoin, cbMat;
+        DataGridView dgSeg, dgSeq;
         SectionPanel view;
         PupitrePanel pupitre;
         DeveloppePanel developpe;
         TrackBar tb;
-        Label lblStep, lblAlert, lblDev;
+        Label lblStep, lblAlert;
         RichTextBox rtSeq;
         Panel right;
 
-        TableLayoutPanel left;
-        Panel machContent;
-        Button btnMachHead;
-        CheckBox chkLock;
-        Label lblDirty;
-        readonly List<MField> mfields = new();
-        bool machOpen = false;
-
-        const int PANW    = 316;
-        const int COLW    = 352;
-        const int MACH_H  = 520;
-        const int MACH_C  = 40;
-        const int MAXPLIS = 12;
-        const double PAN_MIN = 4.0;    // pan minimal exploitable (mm)
-
-        int FinRow => piece.Sequence.Count;
-
-        sealed class MField
-        {
-            public Label Lab;
-            public NumericUpDown Num;
-            public Button Ok, Undo;
-            public double Applied;
-            public Action<double> Apply;
-            public bool Dirty => Ok.Visible;
-        }
+        const int PANW = 300;   // largeur utile du panneau gauche
 
         public MainForm()
         {
-            // AutoScaleDimensions = taille MOYENNE D'UN CARACTERE de la police du formulaire
-            // (Segoe UI 9pt @96dpi = 7 x 15 px), PAS un DPI. A poser AVANT Width/Height.
-            AutoScaleDimensions = new SizeF(7F, 15F);
-            AutoScaleMode = AutoScaleMode.Font;
-            Font = new Font("Segoe UI", 9);
-
-            Text = "Simulateur de pliage — collisions outillage · TolTem   [v1.0]";
-            Width = 1360; Height = 900; StartPosition = FormStartPosition.CenterScreen;
-            MinimumSize = new Size(1100, 720);
-            BackColor = CBack; ForeColor = CText;
-
+            Text = "Simulateur de pliage — collisions outillage · TolTem   [v0.8]";
+            Width = 1320; Height = 860; StartPosition = FormStartPosition.CenterScreen;
+            BackColor = CBack; ForeColor = CText; Font = new Font("Segoe UI", 9);
             lib = ToolLib.Load();
             curPoin = lib.Poincons[0];
             curMat = lib.Matrices.Find(m => m.Nom.Contains("2045")) ?? lib.Matrices[0];
             SyncCfgFromTools();
             BuildUi();
             view.SetTools(curMat, curPoin, cfg.Embase);
+            ReloadGridsFromPiece();
             Recompute();
-            ShowView(1);   // pupitre en premier : c'est l'ecran de saisie
-        }
-
-        // sort de la pile d'evenements d'une grille avant de la retoucher
-        void Defer(Action a)
-        {
-            if (IsHandleCreated) BeginInvoke(a);
-            else a();
         }
 
         void SyncCfgFromTools()
@@ -109,6 +68,7 @@ namespace SimulateurPliage
             {
                 cfg.PoinconHauteur = curPoin.Hauteur; cfg.PoinconAngleDeg = curPoin.AngleDeg;
                 cfg.CorpsLg = curPoin.CorpsLg;
+                // ColRetrait/ColHauteur retires : le col de cygne est desormais dans le contour du poincon.
             }
             if (curMat != null) cfg.BlocLargeur = curMat.BlocLargeur;
         }
@@ -117,242 +77,73 @@ namespace SimulateurPliage
         void BuildUi()
         {
             var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, BackColor = CGrey };
-            root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, COLW));
+            root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 342));
             root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             Controls.Add(root);
 
-            left = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, BackColor = CPanel, Margin = new Padding(0) };
-            left.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            left.RowStyles.Add(new RowStyle(SizeType.Absolute, 10));
-            left.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
-            left.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            left.RowStyles.Add(new RowStyle(SizeType.Absolute, MACH_C));
-            root.Controls.Add(left, 0, 0);
-
+            var left = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = CPanel, Padding = new Padding(14, 10, 14, 20), Margin = new Padding(0) };
             right = new Panel { Dock = DockStyle.Fill, BackColor = CBack, Margin = new Padding(0) };
+            root.Controls.Add(left, 0, 0);
             root.Controls.Add(right, 1, 0);
+            int y = 4;
 
-            // ---------------- rangee 0 : entete ----------------
-            var head = new Panel { Dock = DockStyle.Fill, BackColor = CPanel, Margin = new Padding(0) };
-            left.Controls.Add(head, 0, 0);
-            int y = 6;
+            y = Title(left, "OUTILLAGE", y, false);
+            cbPoin = Combo(left, "Poinçon", PoinNames(), 0, ref y, i => { curPoin = lib.Poincons[i]; SyncCfgFromTools(); view.SetTools(curMat, curPoin, cfg.Embase); Recompute(); });
+            cbMat = Combo(left, "Matrice", MatNames(), Math.Max(0, lib.Matrices.IndexOf(curMat)), ref y, i => { curMat = lib.Matrices[i]; SyncCfgFromTools(); view.SetTools(curMat, curPoin, cfg.Embase); RebuildVColumn(); Recompute(); });
 
-            y = Title(head, "OUTILLAGE", y, false);
-            cbPoin = Combo(head, "Poinçon", PoinNames(), 0, ref y,
-                i => { curPoin = lib.Poincons[i]; SyncCfgFromTools(); PushMachineFields(); view.SetTools(curMat, curPoin, cfg.Embase); Recompute(); });
-            cbMat = Combo(head, "Matrice", MatNames(), Math.Max(0, lib.Matrices.IndexOf(curMat)), ref y,
-                i => { curMat = lib.Matrices[i]; SyncCfgFromTools(); PushMachineFields(); view.SetTools(curMat, curPoin, cfg.Embase); Recompute(); });
+            y = Title(left, "PIÈCE", y);
+            nNb = Num(left, "Nombre de plis", 2, 0, 12, 1, 0, ref y, v => { SetNbPlis((int)v); });
+            nEp = Num(left, "Épaisseur (mm)", 1.0, 0.4, 5, 0.1, 2, ref y, v => { piece.Epaisseur = v; Recompute(); });
+            cbCotes = Combo(left, "Cotes", new[] { "intérieures", "extérieures" }, 0, ref y, i => { piece.CotesExterieures = i == 1; Recompute(); });
 
-            y = Title(head, "PIÈCE", y);
-            nNb = Num(head, "Nombre de plis", piece.NbPlis, 0, MAXPLIS, 1, 0, ref y, v => SetNbPlis((int)v));
-            nEp = Num(head, "Épaisseur (mm)", 1.0, 0.4, 5, 0.1, 2, ref y, v => { piece.Epaisseur = v; Recompute(); });
-            nLong = Num(head, "Longueur de pli (mm)", 500, 10, 5000, 10, 0, ref y, v => { piece.LongueurPli = v; Recompute(); });
-            cbMateriau = Combo(head, "Matériau", new[] { "Acier  Rm 450", "Inox  Rm 600", "Alu  Rm 250", "Zinc  Rm 150" }, 0, ref y,
-                i => { piece.Rm = new[] { 450.0, 600.0, 250.0, 150.0 }[i]; Recompute(); });
-            cbCotes = Combo(head, "Cotes", new[] { "intérieures", "extérieures" }, 0, ref y,
-                i => { piece.CotesExterieures = i == 1; Recompute(); });
+            y = Title(left, "PANS (longueurs mm)", y);
+            dgSeg = Grid(left, 96, ref y);
+            dgSeg.Columns.Add(TextCol("pan", "Pan", 56, true));
+            dgSeg.Columns.Add(TextCol("lg", "Longueur", 150, false));
+            dgSeg.CellEndEdit += (s, e) => { if (!_load) { ReadSeg(); Recompute(); } };
 
-            lblDev = new Label { Left = 12, Top = y + 2, Width = PANW, Height = 18,
-                ForeColor = CMuted, Font = new Font("Consolas", 9f, FontStyle.Bold) };
-            head.Controls.Add(lblDev); y += 26;
-
-            left.RowStyles[0] = new RowStyle(SizeType.Absolute, y + 6);
-
-            // ---------------- rangee 1 : titre sequence ----------------
-            var seqHead = new Panel { Dock = DockStyle.Fill, BackColor = CPanel, Margin = new Padding(0) };
-            left.Controls.Add(seqHead, 0, 1);
-            seqHead.Controls.Add(new Panel { Left = 10, Top = 4, Width = PANW, Height = 1, BackColor = CSep });
-            seqHead.Controls.Add(new Label { Text = "SÉQUENCE DE PLIAGE   ·   R butée = pan", Left = 12, Top = 12, Width = PANW,
-                ForeColor = CAccent, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
-
-            // ---------------- rangee 2 : grille sequence (etirable) ----------------
-            var seqBox = new Panel { Dock = DockStyle.Fill, BackColor = CPanel, Padding = new Padding(12, 0, 12, 6), Margin = new Padding(0) };
-            left.Controls.Add(seqBox, 0, 2);
-
-            var barSeq = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 44, BackColor = CPanel };
-            barSeq.Controls.Add(Btn("+ pli", 64, AddBend, 34));
-            barSeq.Controls.Add(Btn("+ étape", 74, AddOp, 34));
-            barSeq.Controls.Add(Btn("↑", 36, () => MoveOpAt(dgSeq.CurrentCell?.RowIndex ?? -1, -1), 34));
-            barSeq.Controls.Add(Btn("↓", 36, () => MoveOpAt(dgSeq.CurrentCell?.RowIndex ?? -1, +1), 34));
-            barSeq.Controls.Add(Btn("Trier", 54, SortByBend, 34));
-            barSeq.Controls.Add(Btn("Ordre auto", 88, AutoOrdre, 34));
-            barSeq.Controls.Add(Btn("Exemple U", 84, () => { piece = Piece.Demo(); step = 0; Recompute(); }, 34));
-            seqBox.Controls.Add(barSeq);
-
-            dgSeq = new DataGridView
-            {
-                Dock = DockStyle.Fill, BackgroundColor = CInput, BorderStyle = BorderStyle.None, GridColor = CGrey,
-                RowHeadersVisible = false, AllowUserToAddRows = false, AllowUserToDeleteRows = false,
-                AllowUserToResizeRows = false, AllowUserToResizeColumns = false, EnableHeadersVisualStyles = false,
-                SelectionMode = DataGridViewSelectionMode.CellSelect,
-                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-                EditMode = DataGridViewEditMode.EditOnEnter,     // un clic = saisie
-                Font = new Font("Segoe UI", 9.5f)
-            };
-            dgSeq.RowTemplate.Height = 30;
-            dgSeq.DefaultCellStyle.BackColor = CInput; dgSeq.DefaultCellStyle.ForeColor = CText;
-            dgSeq.DefaultCellStyle.SelectionBackColor = CBtn; dgSeq.DefaultCellStyle.SelectionForeColor = CText;
-            dgSeq.DefaultCellStyle.Padding = new Padding(2, 4, 2, 4);
-            dgSeq.ColumnHeadersDefaultCellStyle.BackColor = CPanel;
-            dgSeq.ColumnHeadersDefaultCellStyle.ForeColor = CMuted;
-            dgSeq.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI", 8.5f, FontStyle.Bold);
-            dgSeq.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
-            dgSeq.ColumnHeadersHeight = 28;
-
-            AddFillCol(dgSeq, new DataGridViewTextBoxColumn { Name = "ord", HeaderText = "N°" }, 9);
-            AddFillCol(dgSeq, new DataGridViewTextBoxColumn { Name = "pli", HeaderText = "Pli" }, 10);
-            AddFillCol(dgSeq, new DataGridViewTextBoxColumn { Name = "r",   HeaderText = "R butée" }, 19);
-            AddFillCol(dgSeq, new DataGridViewTextBoxColumn { Name = "ang", HeaderText = "Angle°" }, 15);
-            AddFillCol(dgSeq, ComboCol("sens", "Sens", new[] { "Haut", "Bas" }), 16);
-            AddFillCol(dgSeq, ComboCol("v", "V", VStrings()), 10);
-            AddFillCol(dgSeq, new DataGridViewCheckBoxColumn { Name = "inv", HeaderText = "⇄" }, 9);
-            AddFillCol(dgSeq, new DataGridViewCheckBoxColumn { Name = "rep", HeaderText = "Rep." }, 10);
-            AddFillCol(dgSeq, DelCol(), 8);
-
-            // N°, Pli et ✕ non editables ; ligne "fin" : seule la cote R est editable.
-            // Pli est un AFFICHAGE : la ligne de pli d'une operation se choisit a la
-            // creation (+ pli / + étape), jamais en tapant dedans. Sinon on reassigne
-            // silencieusement une cote butee au mauvais pan.
-            dgSeq.CellBeginEdit += (s, e) =>
-            {
-                string col = dgSeq.Columns[e.ColumnIndex].Name;
-                if (col == "ord" || col == "pli" || col == "del") { e.Cancel = true; return; }
-                if (e.RowIndex == FinRow && col != "r") e.Cancel = true;
-            };
-
-            // Commit immediat UNIQUEMENT pour cases a cocher et listes deroulantes :
-            // sur une cellule texte ce handler se declenche a chaque frappe et casse la saisie.
-            dgSeq.CurrentCellDirtyStateChanged += (s, e) =>
-            {
-                if (!dgSeq.IsCurrentCellDirty) return;
-                var c = dgSeq.CurrentCell;
-                if (c is DataGridViewCheckBoxCell || c is DataGridViewComboBoxCell)
-                    dgSeq.CommitEdit(DataGridViewDataErrorContexts.Commit);
-            };
-
-            // apres une saisie : on relit, et on rafraichit L'AUTRE vue seulement.
-            dgSeq.CellValueChanged += (s, e) =>
-            {
-                if (_load || e.RowIndex < 0) return;
-                ReadSeq();
-                pupitre.SetData(piece, step, curPoin, curMat, cfg.Embase);
-                BuildEnumeration();
-                Redraw();
-            };
-
-            // ✕ en bout de ligne
-            dgSeq.CellContentClick += (s, e) =>
-            {
-                if (_load || e.RowIndex < 0 || e.RowIndex >= FinRow) return;
-                if (dgSeq.Columns[e.ColumnIndex].Name != "del") return;
-                DeleteRow(e.RowIndex);
-            };
-
+            y = Title(left, "SÉQUENCE DE PLIAGE", y);
+            dgSeq = Grid(left, 240, ref y);          // agrandie : c'est le coeur de l'outil
+            dgSeq.RowTemplate.Height = 28;
+            dgSeq.Columns.Add(TextCol("ord", "N°", 30, true));
+            dgSeq.Columns.Add(TextCol("pli", "Pli", 38, false));
+            dgSeq.Columns.Add(TextCol("ang", "Angle°", 54, false));
+            dgSeq.Columns.Add(ComboCol("sens", "Sens", new[] { "Haut", "Bas" }, 58));
+            dgSeq.Columns.Add(ComboCol("v", "V", VStrings(), 46));
+            var cRep = new DataGridViewCheckBoxColumn { Name = "rep", HeaderText = "Reprise", Width = 58 };
+            dgSeq.Columns.Add(cRep);
+            dgSeq.CellEndEdit += (s, e) => { if (!_load) { ReadSeq(); Recompute(); } };
+            dgSeq.CurrentCellDirtyStateChanged += (s, e) => { if (dgSeq.IsCurrentCellDirty) dgSeq.CommitEdit(DataGridViewDataErrorContexts.Commit); };
             dgSeq.DataError += (s, e) => { e.ThrowException = false; };
 
-            dgSeq.SelectionChanged += (s, e) =>
-            {
-                if (_load || dgSeq.CurrentCell == null) return;
-                int r = dgSeq.CurrentCell.RowIndex;
-                if (r >= 0 && r < piece.Sequence.Count && r != step) SetStep(r);
-            };
+            var barSeq = new FlowLayoutPanel { Left = 12, Top = y, Width = PANW + 10, Height = 34, BackColor = CPanel };
+            left.Controls.Add(barSeq); y += 42;
+            barSeq.Controls.Add(Btn("+ étape", 70, () => { AddOp(); }));
+            barSeq.Controls.Add(Btn("–", 34, () => { DelOp(); }));
+            barSeq.Controls.Add(Btn("↑", 34, () => { MoveOp(-1); }));
+            barSeq.Controls.Add(Btn("↓", 34, () => { MoveOp(+1); }));
+            barSeq.Controls.Add(Btn("Exemple U", 90, () => { piece = Piece.Demo(); ReloadGridsFromPiece(); step = 0; Recompute(); }));
 
-            // ---- COULEURS : calculees au dessin. On ne mute JAMAIS row.DefaultCellStyle :
-            // cela invalide la ligne et detruit l'editeur de cellule en cours d'ouverture.
-            dgSeq.CellFormatting += (s, e) =>
-            {
-                if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
-                int n = piece.Sequence.Count;
-                if (e.RowIndex >= n)     // ligne "fin"
-                {
-                    e.CellStyle.ForeColor = CFin; e.CellStyle.SelectionForeColor = CFin;
-                    e.CellStyle.BackColor = CLockBg; e.CellStyle.SelectionBackColor = CLockBg;
-                    return;
-                }
-                bool hit = e.RowIndex < seqHits.Length && seqHits[e.RowIndex];
-                bool act = e.RowIndex == step;
-                Color bg = act ? CCurBg : CInput;
-                Color fg = dgSeq.Columns[e.ColumnIndex].Name == "del"
-                    ? CRouge
-                    : (hit ? CRouge : (piece.Sequence[e.RowIndex].Reprise ? CVert : CBleu));
-                e.CellStyle.ForeColor = fg;
-                e.CellStyle.SelectionForeColor = fg;
-                e.CellStyle.BackColor = bg;
-                e.CellStyle.SelectionBackColor = act ? CCurBg : CBtn;
-            };
-            seqBox.Controls.Add(dgSeq);
-            dgSeq.BringToFront();
+            y = Title(left, "RÉGLAGES MACHINE  (À MESURER)", y);
 
-            // ---------------- rangee 3 : reglages machine (repliable + verrou) ----------------
-            var mach = new Panel { Dock = DockStyle.Fill, BackColor = CLockBg, Margin = new Padding(0) };
-            left.Controls.Add(mach, 0, 3);
+            y = SubTitle(left, "Poinçon", y);
+            MNum(left, "Hauteur", cfg.PoinconHauteur, ref y, v => { cfg.PoinconHauteur = v; if (curPoin != null) curPoin.Hauteur = v; });
+            MNum(left, "Angle pointe (°)", cfg.PoinconAngleDeg, ref y, v => cfg.PoinconAngleDeg = v);
+            MNum(left, "Largeur pointe", cfg.PoinconPointeLg, ref y, v => cfg.PoinconPointeLg = v);
 
-            var machHead = new Panel { Dock = DockStyle.Top, Height = MACH_C, BackColor = CLockBg };
-            mach.Controls.Add(machHead);
-            machHead.Controls.Add(new Panel { Left = 0, Top = 0, Width = COLW, Height = 1, BackColor = CSep });
+            y = SubTitle(left, "Butée & tablier", y);
+            MNum(left, "Tablier déport", cfg.TablierDeport, ref y, v => cfg.TablierDeport = v);
+            MNum(left, "Hauteur libre ouverte", cfg.HauteurLibre, ref y, v => cfg.HauteurLibre = v);
+            MNum(left, "Butée arrière max", cfg.ButeeMax, ref y, v => cfg.ButeeMax = v);
 
-            btnMachHead = new Button
-            {
-                Text = "▸  RÉGLAGES MACHINE", Left = 8, Top = 7, Width = 190, Height = 26,
-                FlatStyle = FlatStyle.Flat, BackColor = CLockBg, ForeColor = CAccent,
-                TextAlign = ContentAlignment.MiddleLeft, Font = new Font("Segoe UI", 9f, FontStyle.Bold)
-            };
-            btnMachHead.FlatAppearance.BorderSize = 0;
-            btnMachHead.Click += (s, e) => ToggleMach();
-            machHead.Controls.Add(btnMachHead);
+            y = SubTitle(left, "Embases", y);
+            MNum(left, "Porte-poinçon hauteur", cfg.Embase.PortePoinconH, ref y, v => cfg.Embase.PortePoinconH = v);
+            MNum(left, "Porte-poinçon largeur", cfg.Embase.PortePoinconLg, ref y, v => cfg.Embase.PortePoinconLg = v);
+            MNum(left, "Semelle hauteur", cfg.Embase.SemelleH, ref y, v => cfg.Embase.SemelleH = v);
+            MNum(left, "Semelle largeur", cfg.Embase.SemelleLg, ref y, v => cfg.Embase.SemelleLg = v);
 
-            lblDirty = new Label { Left = 200, Top = 12, Width = 80, ForeColor = CAccent, Font = new Font("Segoe UI", 8.5f, FontStyle.Bold) };
-            machHead.Controls.Add(lblDirty);
-
-            chkLock = new CheckBox { Text = "🔒", Left = 296, Top = 9, Width = 44, Height = 24, Checked = true,
-                Appearance = Appearance.Button, FlatStyle = FlatStyle.Flat, BackColor = CBtn, ForeColor = CText,
-                TextAlign = ContentAlignment.MiddleCenter };
-            chkLock.FlatAppearance.BorderColor = CGrey;
-            chkLock.CheckedChanged += (s, e) => ApplyLock();
-            var tipLock = new ToolTip(); tipLock.SetToolTip(chkLock, "Verrouiller / déverrouiller les réglages machine");
-            machHead.Controls.Add(chkLock);
-
-            machContent = new Panel { Dock = DockStyle.Fill, BackColor = CLockBg, AutoScroll = true, Visible = false, Padding = new Padding(0, 2, 0, 8) };
-            mach.Controls.Add(machContent);
-            machContent.BringToFront();
-
-            int my = 2;
-            my = SubTitle(machContent, "POINÇON", my);
-            MNum(machContent, "Hauteur", cfg.PoinconHauteur, ref my, v => { cfg.PoinconHauteur = v; if (curPoin != null) curPoin.Hauteur = v; view.SetTools(curMat, curPoin, cfg.Embase); });
-            MNum(machContent, "Angle pointe (°)", cfg.PoinconAngleDeg, ref my, v => cfg.PoinconAngleDeg = v);
-            MNum(machContent, "Largeur pointe", cfg.PoinconPointeLg, ref my, v => cfg.PoinconPointeLg = v);
-
-            my = SubTitle(machContent, "COL DE CYGNE   (secours)", my);
-            MNum(machContent, "Retrait", cfg.ColRetrait, ref my, v => cfg.ColRetrait = v);
-            MNum(machContent, "Hauteur", cfg.ColHauteur, ref my, v => cfg.ColHauteur = v);
-
-            my = SubTitle(machContent, "BUTÉE ARRIÈRE", my);
-            MNum(machContent, "Profondeur mini", cfg.ButeeMin, ref my, v => cfg.ButeeMin = v);
-            MNum(machContent, "Profondeur maxi", cfg.ButeeMax, ref my, v => cfg.ButeeMax = v);
-            MNum(machContent, "Entraxe latéral maxi", cfg.ButeeLatMax, ref my, v => cfg.ButeeLatMax = v);
-
-            my = SubTitle(machContent, "CAPACITÉ MACHINE", my);
-            MNum(machContent, "Longueur de pli mini", cfg.LongPliMin, ref my, v => cfg.LongPliMin = v);
-            MNum(machContent, "Longueur de pli maxi", cfg.LongPliMax, ref my, v => cfg.LongPliMax = v);
-            MNum(machContent, "Arcade (passage lat.)", cfg.ColPassageLat, ref my, v => cfg.ColPassageLat = v);
-            MNum(machContent, "Tablier déport", cfg.TablierDeport, ref my, v => cfg.TablierDeport = v);
-            MNum(machContent, "Hauteur libre (repère)", cfg.HauteurLibre, ref my, v => cfg.HauteurLibre = v);
-
-            my = SubTitle(machContent, "EMBASES", my);
-            MNum(machContent, "Porte-poinçon hauteur", cfg.Embase.PortePoinconH, ref my, v => cfg.Embase.PortePoinconH = v);
-            MNum(machContent, "Porte-poinçon largeur", cfg.Embase.PortePoinconLg, ref my, v => cfg.Embase.PortePoinconLg = v);
-            MNum(machContent, "Semelle hauteur", cfg.Embase.SemelleH, ref my, v => cfg.Embase.SemelleH = v);
-            MNum(machContent, "Semelle largeur", cfg.Embase.SemelleLg, ref my, v => cfg.Embase.SemelleLg = v);
-
-            var barMach = new FlowLayoutPanel { Left = 10, Top = my + 12, Width = PANW - 20, Height = 42, BackColor = CLockBg };
-            barMach.Controls.Add(Btn("Tout appliquer", 112, ApplyAllFields, 32));
-            barMach.Controls.Add(Btn("Tout annuler", 104, RevertAllFields, 32));
-            machContent.Controls.Add(barMach);
-
-            ApplyLock();
-
-            // ---------------- droite : vues + controles ----------------
+            // ---------------- droite : vue + controles ----------------
             var bottom = new Panel { Dock = DockStyle.Bottom, Height = 190, BackColor = CPanel };
             right.Controls.Add(bottom);
             lblAlert = new Label { Dock = DockStyle.Top, Height = 30, ForeColor = CText, BackColor = CPanel,
@@ -365,8 +156,8 @@ namespace SimulateurPliage
 
             var ctrl = new Panel { Dock = DockStyle.Top, Height = 52, BackColor = CBack };
             right.Controls.Add(ctrl);
-            var bPrev = Btn("◀", 44, () => SetStep(step - 1)); bPrev.Left = 10; bPrev.Top = 9; bPrev.Height = 34; ctrl.Controls.Add(bPrev);
-            var bNext = Btn("▶", 44, () => SetStep(step + 1)); bNext.Left = 58; bNext.Top = 9; bNext.Height = 34; ctrl.Controls.Add(bNext);
+            var bPrev = Btn("◀", 44, () => { SetStep(step - 1); }); bPrev.Left = 10; bPrev.Top = 9; bPrev.Height = 34; ctrl.Controls.Add(bPrev);
+            var bNext = Btn("▶", 44, () => { SetStep(step + 1); }); bNext.Left = 58; bNext.Top = 9; bNext.Height = 34; ctrl.Controls.Add(bNext);
             tb = new TrackBar { Left = 110, Top = 8, Width = 215, Minimum = 0, Maximum = 1, TickStyle = TickStyle.None, BackColor = CBack };
             tb.ValueChanged += (s, e) => { if (!_load) SetStep(tb.Value); };
             ctrl.Controls.Add(tb);
@@ -375,127 +166,19 @@ namespace SimulateurPliage
 
             var vbar = new FlowLayoutPanel { Dock = DockStyle.Right, Width = 292, BackColor = CBack, Padding = new Padding(0, 9, 8, 0) };
             ctrl.Controls.Add(vbar);
-            var bPup = Btn("Pupitre", 84, () => ShowView(1)); bPup.Height = 34;
             var bSec = Btn("Section", 84, () => ShowView(0)); bSec.Height = 34;
             var bDev = Btn("Développé", 92, () => ShowView(2)); bDev.Height = 34;
-            vbar.Controls.Add(bPup); vbar.Controls.Add(bSec); vbar.Controls.Add(bDev);
+            var bPup = Btn("Pupitre", 84, () => ShowView(1)); bPup.Height = 34;
+            vbar.Controls.Add(bSec); vbar.Controls.Add(bDev); vbar.Controls.Add(bPup);
 
-            view = new SectionPanel(cfg) { Dock = DockStyle.Fill, BackColor = CBack, Visible = false };
+            view = new SectionPanel(cfg) { Dock = DockStyle.Fill, BackColor = CBack };
             right.Controls.Add(view);
+            pupitre = new PupitrePanel(cfg) { Dock = DockStyle.Fill, Visible = false };
+            right.Controls.Add(pupitre);
             developpe = new DeveloppePanel { Dock = DockStyle.Fill, Visible = false };
             right.Controls.Add(developpe);
-            pupitre = new PupitrePanel(cfg) { Dock = DockStyle.Fill, Visible = true };
-            right.Controls.Add(pupitre);
-
-            // ---- synchro temps reel : le pupitre ecrit dans la MEME Piece ----
-            // apres une saisie au pupitre, on rafraichit dgSeq (pas le pupitre lui-meme).
-            pupitre.Edited             += () => { FillSeqGrid(); BuildEnumeration(); Redraw(); };   // dgSeq seulement
-            pupitre.StepPicked         += SetStep;
-            pupitre.AddBendRequested   += AddBend;
-            pupitre.AddOpRequested     += AddOp;
-            pupitre.DelOpRequested     += () => DelOpAt(pupitre.CurrentRow);
-            pupitre.DeleteRowRequested += DeleteRow;
-            pupitre.MoveOpRequested    += d => MoveOpAt(pupitre.CurrentRow, d);
-            pupitre.SortRequested      += SortByBend;
-            pupitre.AutoOrderRequested += AutoOrdre;
-
-            pupitre.BringToFront();
+            view.BringToFront();
         }
-
-        DataGridViewButtonColumn DelCol()
-        {
-            var c = new DataGridViewButtonColumn
-            {
-                Name = "del", HeaderText = "", Text = "✕",
-                UseColumnTextForButtonValue = true, FlatStyle = FlatStyle.Flat
-            };
-            c.DefaultCellStyle.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
-            return c;
-        }
-
-        // ---------------- reglages machine : verrou / confirmation ----------------
-        void ToggleMach()
-        {
-            machOpen = !machOpen;
-            left.RowStyles[3] = new RowStyle(SizeType.Absolute, machOpen ? MACH_H : MACH_C);
-            machContent.Visible = machOpen;
-            btnMachHead.Text = (machOpen ? "▾  " : "▸  ") + "RÉGLAGES MACHINE";
-        }
-
-        void ApplyLock()
-        {
-            bool locked = chkLock.Checked;
-            chkLock.Text = locked ? "🔒" : "🔓";
-            chkLock.BackColor = locked ? CBtn : Color.FromArgb(70, 45, 14);
-            foreach (var f in mfields)
-            {
-                f.Num.Enabled = !locked;
-                f.Num.BackColor = locked ? CLockBg : CInput;
-                f.Lab.ForeColor = locked ? Color.FromArgb(100, 108, 120) : CMuted;
-                if (locked && f.Dirty) Revert(f);
-            }
-            UpdateDirty();
-        }
-
-        void MarkDirty(MField f)
-        {
-            bool dirty = Math.Abs((double)f.Num.Value - f.Applied) > 1e-9;
-            f.Ok.Visible = f.Undo.Visible = dirty;
-            f.Num.ForeColor = dirty ? CAccent : CText;
-            UpdateDirty();
-        }
-
-        void UpdateDirty()
-        {
-            int n = 0; foreach (var f in mfields) if (f.Dirty) n++;
-            lblDirty.Text = n > 0 ? $"{n} à valider" : "";
-        }
-
-        void Confirm(MField f)
-        {
-            f.Applied = (double)f.Num.Value;
-            f.Apply(f.Applied);
-            f.Ok.Visible = f.Undo.Visible = false;
-            f.Num.ForeColor = CText;
-            UpdateDirty();
-            Recompute();
-        }
-
-        void Revert(MField f)
-        {
-            _load = true; f.Num.Value = Clamp(f.Num, f.Applied); _load = false;
-            f.Ok.Visible = f.Undo.Visible = false;
-            f.Num.ForeColor = CText;
-            UpdateDirty();
-        }
-
-        void ApplyAllFields()
-        {
-            bool any = false;
-            foreach (var f in mfields)
-                if (f.Dirty) { f.Applied = (double)f.Num.Value; f.Apply(f.Applied); f.Ok.Visible = f.Undo.Visible = false; f.Num.ForeColor = CText; any = true; }
-            UpdateDirty();
-            if (any) Recompute();
-        }
-
-        void RevertAllFields()
-        {
-            foreach (var f in mfields) if (f.Dirty) Revert(f);
-        }
-
-        void PushMachineFields()
-        {
-            if (mfields.Count < 2) return;
-            _load = true;
-            mfields[0].Applied = cfg.PoinconHauteur;  mfields[0].Num.Value = Clamp(mfields[0].Num, cfg.PoinconHauteur);
-            mfields[1].Applied = cfg.PoinconAngleDeg; mfields[1].Num.Value = Clamp(mfields[1].Num, cfg.PoinconAngleDeg);
-            _load = false;
-            foreach (var f in mfields) { f.Ok.Visible = f.Undo.Visible = false; f.Num.ForeColor = CText; }
-            UpdateDirty();
-        }
-
-        static decimal Clamp(NumericUpDown n, double v)
-            => Math.Min(n.Maximum, Math.Max(n.Minimum, (decimal)v));
 
         void ShowView(int mode)
         {
@@ -507,6 +190,8 @@ namespace SimulateurPliage
             else developpe.BringToFront();
         }
 
+        // Retournement par operation : le 1er pli fixe la face de reference ;
+        // des qu'un pli change de sens vs l'orientation courante -> retournement, et l'orientation bascule.
         bool[] Retournements()
         {
             var f = new bool[piece.Sequence.Count];
@@ -526,88 +211,68 @@ namespace SimulateurPliage
         {
             if (sep)
             {
-                p.Controls.Add(new Panel { Left = 10, Top = y + 6, Width = PANW, Height = 1, BackColor = CSep });
-                y += 12;
+                var d = new Panel { Left = 10, Top = y + 6, Width = PANW + 10, Height = 1, BackColor = CSep };
+                p.Controls.Add(d); y += 12;
             }
-            p.Controls.Add(new Label { Text = t, Left = 12, Top = y + 6, Width = PANW, ForeColor = CAccent, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) });
-            return y + 30;
+            var l = new Label { Text = t, Left = 10, Top = y + 6, Width = PANW, ForeColor = CAccent, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) };
+            p.Controls.Add(l); return y + 30;
         }
-
         int SubTitle(Panel p, string t, int y)
         {
-            p.Controls.Add(new Label { Text = t, Left = 10, Top = y + 10, Width = PANW - 20, Height = 18,
-                ForeColor = CAccent, Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
-            p.Controls.Add(new Panel { Left = 10, Top = y + 31, Width = PANW - 28, Height = 1, BackColor = CSep });
-            return y + 40;
+            var l = new Label { Text = t, Left = 12, Top = y + 6, Width = PANW, ForeColor = CMuted, Font = new Font("Segoe UI", 8.5f, FontStyle.Bold) };
+            p.Controls.Add(l);
+            var d = new Panel { Left = 12 + (int)(t.Length * 6.6) + 8, Top = y + 13, Width = Math.Max(10, PANW - (int)(t.Length * 6.6) - 22), Height = 1, BackColor = CSep };
+            p.Controls.Add(d);
+            return y + 24;
         }
-
         NumericUpDown Num(Panel p, string lab, double v, double min, double max, double inc, int dec, ref int y, Action<double> onCh)
         {
-            var l = new Label { Text = lab, Left = 12, Top = y + 4, Width = 150, ForeColor = CText };
-            var n = new NumericUpDown { Left = 166, Top = y, Width = 140, Minimum = (decimal)min, Maximum = (decimal)max,
-                Increment = (decimal)inc, DecimalPlaces = dec, Value = (decimal)Math.Min(max, Math.Max(min, v)),
-                BackColor = CInput, ForeColor = CText, BorderStyle = BorderStyle.FixedSingle };
+            var l = new Label { Text = lab, Left = 12, Top = y + 4, Width = 170, ForeColor = CText };
+            var n = new NumericUpDown { Left = 190, Top = y, Width = 148, Minimum = (decimal)min, Maximum = (decimal)max,
+                Increment = (decimal)inc, DecimalPlaces = dec, Value = (decimal)v, BackColor = CInput, ForeColor = CText, BorderStyle = BorderStyle.FixedSingle };
             n.ValueChanged += (s, e) => { if (!_load) onCh((double)n.Value); };
             p.Controls.Add(l); p.Controls.Add(n); y += 30; return n;
         }
-
-        // champ machine : modification -> orange, puis ✓ (appliquer) ou ↺ (annuler). Rien n'est applique avant.
-        void MNum(Panel p, string lab, double v, ref int y, Action<double> apply)
+        void MNum(Panel p, string lab, double v, ref int y, Action<double> onCh)
         {
-            var l = new Label { Text = lab, Left = 14, Top = y + 6, Width = 148, Height = 18, ForeColor = CMuted, Font = new Font("Segoe UI", 9f) };
-            var n = new NumericUpDown { Left = 164, Top = y, Width = 86, Height = 26, Minimum = 0, Maximum = 5000, DecimalPlaces = 1,
-                Increment = 1, Value = (decimal)v, BackColor = CInput, ForeColor = CText, BorderStyle = BorderStyle.FixedSingle, Enabled = false };
-            var ok = new Button { Text = "✓", Left = 256, Top = y, Width = 28, Height = 26, Visible = false,
-                FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(28, 70, 36), ForeColor = CVert, Margin = new Padding(0) };
-            var un = new Button { Text = "↺", Left = 286, Top = y, Width = 28, Height = 26, Visible = false,
-                FlatStyle = FlatStyle.Flat, BackColor = CBtn, ForeColor = CMuted, Margin = new Padding(0) };
-            ok.FlatAppearance.BorderColor = CGrey; un.FlatAppearance.BorderColor = CGrey;
-
-            var f = new MField { Lab = l, Num = n, Ok = ok, Undo = un, Applied = v, Apply = apply };
-            n.ValueChanged += (s, e) => { if (!_load) MarkDirty(f); };
-            n.KeyDown += (s, e) =>
-            {
-                if (e.KeyCode == Keys.Enter && f.Dirty) { Confirm(f); e.SuppressKeyPress = true; }
-                else if (e.KeyCode == Keys.Escape && f.Dirty) { Revert(f); e.SuppressKeyPress = true; }
-            };
-            ok.Click += (s, e) => Confirm(f);
-            un.Click += (s, e) => Revert(f);
-
-            var tip = new ToolTip();
-            tip.SetToolTip(ok, "Appliquer cette valeur (Entrée)");
-            tip.SetToolTip(un, "Annuler la modification (Échap)");
-
-            mfields.Add(f);
-            p.Controls.Add(l); p.Controls.Add(n); p.Controls.Add(ok); p.Controls.Add(un);
-            y += 34;
+            var l = new Label { Text = lab, Left = 20, Top = y + 4, Width = 168, ForeColor = CMuted };
+            var n = new NumericUpDown { Left = 190, Top = y, Width = 148, Minimum = 0, Maximum = 5000, DecimalPlaces = 1,
+                Increment = 1, Value = (decimal)v, BackColor = CInput, ForeColor = CText, BorderStyle = BorderStyle.FixedSingle };
+            n.ValueChanged += (s, e) => { if (!_load) { onCh((double)n.Value); Recompute(); } };
+            p.Controls.Add(l); p.Controls.Add(n); y += 28;
         }
-
         ComboBox Combo(Panel p, string lab, string[] items, int sel, ref int y, Action<int> onCh)
         {
-            var l = new Label { Text = lab, Left = 12, Top = y + 4, Width = 150, ForeColor = CText };
-            var c = new ComboBox { Left = 166, Top = y, Width = 140, DropDownStyle = ComboBoxStyle.DropDownList,
+            var l = new Label { Text = lab, Left = 12, Top = y + 4, Width = 170, ForeColor = CText };
+            var c = new ComboBox { Left = 190, Top = y, Width = 148, DropDownStyle = ComboBoxStyle.DropDownList,
                 BackColor = CInput, ForeColor = CText, FlatStyle = FlatStyle.Flat };
             c.Items.AddRange(items); c.SelectedIndex = sel;
             c.SelectedIndexChanged += (s, e) => { if (!_load) onCh(c.SelectedIndex); };
             p.Controls.Add(l); p.Controls.Add(c); y += 30; return c;
         }
-
-        static void AddFillCol(DataGridView g, DataGridViewColumn c, int weight)
+        DataGridView Grid(Panel p, int h, ref int y)
         {
-            c.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
-            c.FillWeight = weight;
-            g.Columns.Add(c);
+            var g = new DataGridView { Left = 12, Top = y, Width = PANW + 10, Height = h, BackgroundColor = CInput,
+                BorderStyle = BorderStyle.None, GridColor = CGrey, RowHeadersVisible = false, AllowUserToAddRows = false,
+                AllowUserToResizeRows = false, EnableHeadersVisualStyles = false, AllowUserToResizeColumns = false,
+                SelectionMode = DataGridViewSelectionMode.CellSelect };
+            g.DefaultCellStyle.BackColor = CInput; g.DefaultCellStyle.ForeColor = CText;
+            g.DefaultCellStyle.SelectionBackColor = CBtn; g.DefaultCellStyle.SelectionForeColor = CText;
+            g.ColumnHeadersDefaultCellStyle.BackColor = CPanel; g.ColumnHeadersDefaultCellStyle.ForeColor = CMuted;
+            g.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI", 8.5f, FontStyle.Bold);
+            g.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing; g.ColumnHeadersHeight = 26;
+            p.Controls.Add(g); y += h + 8; return g;
         }
-
-        DataGridViewComboBoxColumn ComboCol(string name, string head, string[] items)
+        DataGridViewTextBoxColumn TextCol(string name, string head, int w, bool ro)
+            => new DataGridViewTextBoxColumn { Name = name, HeaderText = head, Width = w, ReadOnly = ro };
+        DataGridViewComboBoxColumn ComboCol(string name, string head, string[] items, int w)
         {
-            var c = new DataGridViewComboBoxColumn { Name = name, HeaderText = head, FlatStyle = FlatStyle.Flat };
+            var c = new DataGridViewComboBoxColumn { Name = name, HeaderText = head, Width = w, FlatStyle = FlatStyle.Flat };
             c.Items.AddRange(items); return c;
         }
-
-        Button Btn(string t, int w, Action onClick, int h = 28)
+        Button Btn(string t, int w, Action onClick)
         {
-            var b = new Button { Text = t, Width = w, Height = h, FlatStyle = FlatStyle.Flat, BackColor = CBtn, ForeColor = CText, Margin = new Padding(3, 2, 3, 2) };
+            var b = new Button { Text = t, Width = w, Height = 28, FlatStyle = FlatStyle.Flat, BackColor = CBtn, ForeColor = CText, Margin = new Padding(2) };
             b.FlatAppearance.BorderColor = CGrey;
             b.Click += (s, e) => onClick();
             return b;
@@ -616,7 +281,6 @@ namespace SimulateurPliage
         // ------------------------------------------- model <-> grids ---
         string[] PoinNames() { var a = new string[lib.Poincons.Count]; for (int i = 0; i < a.Length; i++) a[i] = lib.Poincons[i].Nom; return a; }
         string[] MatNames()  { var a = new string[lib.Matrices.Count]; for (int i = 0; i < a.Length; i++) a[i] = lib.Matrices[i].Nom; return a; }
-
         string[] VStrings()
         {
             var l = new List<string>();
@@ -624,392 +288,118 @@ namespace SimulateurPliage
             if (l.Count == 0) l.Add("16");
             return l.ToArray();
         }
-
-        double LDeveloppe
+        void RebuildVColumn()
         {
-            get { double s = 0; foreach (var v in piece.Segments) s += v; return s; }
-        }
-
-        // Ajouter un pli ne CREE PAS de matiere : on scinde le dernier pan en deux.
-        // Le developpe est une donnee du client (le flan sort de la poinçonneuse a cette
-        // cote), il ne doit jamais bouger tout seul.
-        bool SplitLastPan()
-        {
-            if (piece.NbPlis >= MAXPLIS) return false;
-            int last = piece.Segments.Count - 1;
-            double L = piece.Segments[last];
-            if (L < 2 * PAN_MIN) return false;
-            double a = Math.Round(L / 2.0, 1);
-            piece.Segments[last] = a;
-            piece.Segments.Add(Math.Round(L - a, 1));
-            return true;
-        }
-
-        // Symetrique : retirer un pli refusionne les deux derniers pans.
-        bool MergeLastPan()
-        {
-            int n = piece.Segments.Count;
-            if (n < 2) return false;
-            piece.Segments[n - 2] += piece.Segments[n - 1];
-            piece.Segments.RemoveAt(n - 1);
-            return true;
-        }
-
-        void AddBend()
-        {
-            if (piece.NbPlis >= MAXPLIS) return;
-            if (!SplitLastPan())
+            if (dgSeq == null || curMat == null) return;
+            var col = dgSeq.Columns["v"] as DataGridViewComboBoxColumn;
+            if (col == null) return;
+            _load = true;
+            col.Items.Clear();
+            foreach (var s in VStrings()) col.Items.Add(s);
+            string first = VStrings()[0];
+            foreach (DataGridViewRow r in dgSeq.Rows)
             {
-                MessageBox.Show(this,
-                    $"Dernier pan : {piece.Segments[piece.Segments.Count - 1]:0.#} mm — trop court pour être scindé.\n\n" +
-                    "Un pli ne crée pas de matière : il partage un pan existant. " +
-                    "Le développé reste celui du flan.",
-                    "Ajouter un pli", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
+                var cell = r.Cells["v"];
+                if (cell.Value == null || !col.Items.Contains(cell.Value.ToString())) cell.Value = first;
             }
-            int bend = piece.NbPlis - 1;
-            piece.Sequence.Add(new Operation { Bend = bend, AngleCible = 90, Sens = Sens.Haut, V = ParseD(VStrings()[0], 16) });
-            step = piece.Sequence.Count - 1;
-            Recompute();
+            _load = false;
         }
 
         void SetNbPlis(int nb)
         {
-            nb = Math.Max(0, Math.Min(MAXPLIS, nb));
-            while (piece.NbPlis < nb && SplitLastPan()) { }
-            while (piece.NbPlis > nb && MergeLastPan()) { }
+            int segs = Math.Max(1, nb + 1);
+            while (piece.Segments.Count < segs) piece.Segments.Add(100);
+            while (piece.Segments.Count > segs) piece.Segments.RemoveAt(piece.Segments.Count - 1);
             piece.Sequence.RemoveAll(o => o.Bend >= piece.NbPlis);
-
-            // une operation par pli au minimum : sinon un pan devient inatteignable a la saisie.
-            // Les nouveaux plis sont AJOUTES EN FIN de programme : on ne retrie pas, l'ordre
-            // des passes appartient a l'operateur (bouton "Trier" pour revenir a 1,2,3...).
-            for (int b = 0; b < piece.NbPlis; b++)
-            {
-                bool found = false;
-                foreach (var o in piece.Sequence) if (o.Bend == b) { found = true; break; }
-                if (!found) piece.Sequence.Add(new Operation { Bend = b, AngleCible = 90, Sens = Sens.Haut, V = ParseD(VStrings()[0], 16) });
-            }
-
+            ReloadGridsFromPiece();
             Recompute();
         }
 
-        // remet le programme dans l'ordre des plis (1, 2, 3...) en gardant les passes groupees
-        void SortByBend()
-        {
-            var src = piece.Sequence;
-            var dst = new List<Operation>(src.Count);
-            for (int b = 0; b < piece.NbPlis; b++)
-                foreach (var o in src) if (o.Bend == b) dst.Add(o);
-            foreach (var o in src) if (!dst.Contains(o)) dst.Add(o);
-            piece.Sequence = dst;
-            step = 0;
-            Recompute();
-        }
-
-        // ✕ : supprime l'operation. Si c'etait la DERNIERE passe sur ce pli, le pli
-        // disparait aussi : les deux pans qu'il separait fusionnent (leurs longueurs
-        // s'additionnent). Sans pli, il n'y a plus qu'une tole.
-        void DeleteRow(int idx)
-        {
-            if (idx < 0 || idx >= piece.Sequence.Count) return;   // la ligne "fin" n'est pas supprimable
-            int bend = piece.Sequence[idx].Bend;
-            piece.Sequence.RemoveAt(idx);
-
-            bool encore = false;
-            foreach (var o in piece.Sequence) if (o.Bend == bend) { encore = true; break; }
-
-            if (!encore && bend >= 0 && bend + 1 < piece.Segments.Count)
-            {
-                piece.Segments[bend] += piece.Segments[bend + 1];   // fusion des deux pans
-                piece.Segments.RemoveAt(bend + 1);
-                foreach (var o in piece.Sequence) if (o.Bend > bend) o.Bend--;
-            }
-
-            step = Math.Max(0, Math.Min(step, piece.Sequence.Count - 1));
-            Recompute();
-        }
-
-        // --- reconstruction de la grille gauche (structure) ---
-        void FillSeqGrid()
+        void ReloadGridsFromPiece()
         {
             _load = true;
-            var mode = dgSeq.EditMode;
-            try
+            dgSeg.Rows.Clear();
+            for (int i = 0; i < piece.Segments.Count; i++)
+                dgSeg.Rows.Add((i + 1).ToString(), piece.Segments[i].ToString("0.#", CultureInfo.InvariantCulture));
+
+            dgSeq.Rows.Clear();
+            for (int i = 0; i < piece.Sequence.Count; i++)
             {
-                if (dgSeq.IsCurrentCellInEditMode) dgSeq.EndEdit();
-                int cr = dgSeq.CurrentCell?.RowIndex ?? -1, cc = dgSeq.CurrentCell?.ColumnIndex ?? -1;
-                dgSeq.EditMode = DataGridViewEditMode.EditProgrammatically;
-
-                var vcol = (DataGridViewComboBoxColumn)dgSeq.Columns["v"];
-                vcol.Items.Clear();
-                foreach (var s in VStrings()) vcol.Items.Add(s);
-                string v0 = VStrings()[0];
-
-                dgSeq.CurrentCell = null;
-                dgSeq.Rows.Clear();
-
-                for (int i = 0; i < piece.Sequence.Count; i++)
-                {
-                    var o = piece.Sequence[i];
-                    string vv = ((int)o.V).ToString();
-                    if (!vcol.Items.Contains(vv)) vv = v0;
-                    int bi = o.ButeeAval ? o.Bend + 1 : o.Bend;
-                    dgSeq.Rows.Add((i + 1).ToString(), (o.Bend + 1).ToString(),
-                        piece.ButeeInt(bi).ToString("0.#", CultureInfo.InvariantCulture),
-                        o.AngleCible.ToString("0.#", CultureInfo.InvariantCulture),
-                        o.Sens == Sens.Haut ? "Haut" : "Bas", vv, o.ButeeAval, o.Reprise);
-                }
-
-                int fr = dgSeq.Rows.Add("—", "fin",
-                    piece.ButeeInt(piece.NbPlis).ToString("0.#", CultureInfo.InvariantCulture), "", null, null, false, false);
-                dgSeq.Rows[fr].Cells["del"] = new DataGridViewTextBoxCell { Value = "" };
-
-                if (nNb != null) nNb.Value = Clamp(nNb, piece.NbPlis);
-                if (nLong != null) nLong.Value = Clamp(nLong, piece.LongueurPli);
-                if (lblDev != null)
-                    lblDev.Text = $"L développé  {LDeveloppe:0.#} mm   ·   {piece.Segments.Count} pans";
-
-                if (cr >= 0 && cr < dgSeq.Rows.Count && cc >= 0 && cc < dgSeq.Columns.Count)
-                    dgSeq.CurrentCell = dgSeq.Rows[cr].Cells[cc];
+                var o = piece.Sequence[i];
+                int r = dgSeq.Rows.Add((i + 1).ToString(), (o.Bend + 1).ToString(),
+                    o.AngleCible.ToString("0.#", CultureInfo.InvariantCulture),
+                    o.Sens == Sens.Haut ? "Haut" : "Bas",
+                    ((int)o.V).ToString(), o.Reprise);
             }
-            finally { dgSeq.EditMode = mode; _load = false; }
-            dgSeq.Invalidate();
+            if (nNb != null) nNb.Value = Math.Min(nNb.Maximum, Math.Max(nNb.Minimum, (decimal)piece.NbPlis));
+            _load = false;
+            RebuildVColumn();
         }
 
-        void RecalcSeqHits()
+        void ReadSeg()
         {
-            var h = new bool[piece.Sequence.Count];
-            for (int i = 0; i < h.Length; i++)
-                h[i] = FoldEngine.Build(piece, i, cfg, curPoin, curMat, cfg.Embase).Collisions.Count > 0;
-            seqHits = h;
+            for (int i = 0; i < dgSeg.Rows.Count && i < piece.Segments.Count; i++)
+                piece.Segments[i] = ParseD(dgSeg.Rows[i].Cells["lg"].Value, piece.Segments[i]);
         }
 
-        // relit la grille gauche dans la Piece (source unique de verite)
         void ReadSeq()
         {
-            int n = piece.Sequence.Count;
-            if (dgSeq.Rows.Count < n + 1) return;
-            var list = new List<Operation>(n);
-            for (int i = 0; i < dgSeq.Rows.Count; i++)
+            var list = new List<Operation>();
+            foreach (DataGridViewRow row in dgSeq.Rows)
             {
-                var row = dgSeq.Rows[i];
-                if (i == n)   // ligne "fin" : le dernier pan
+                if (row.IsNewRow) continue;
+                int pli = (int)ParseD(row.Cells["pli"].Value, 1);
+                var op = new Operation
                 {
-                    piece.SetButeeInt(piece.NbPlis, ParseD(row.Cells["r"].Value, piece.ButeeInt(piece.NbPlis)));
-                    continue;
-                }
-                int pli = (int)ParseD(row.Cells["pli"].Value, i + 1);
-                int bend = Math.Max(0, Math.Min(Math.Max(0, piece.NbPlis - 1), pli - 1));
-                bool aval = row.Cells["inv"].Value is bool ba && ba;
-                int bi = Math.Min(piece.Segments.Count - 1, aval ? bend + 1 : bend);
-                piece.SetButeeInt(bi, ParseD(row.Cells["r"].Value, piece.ButeeInt(bi)));
-                list.Add(new Operation
-                {
-                    Bend = bend,
-                    AngleCible = Math.Max(1, Math.Min(179, ParseD(row.Cells["ang"].Value, 90))),
+                    Bend = Math.Max(0, Math.Min(piece.NbPlis - 1, pli - 1)),
+                    AngleCible = ParseD(row.Cells["ang"].Value, 90),
                     Sens = (row.Cells["sens"].Value as string) == "Bas" ? Sens.Bas : Sens.Haut,
                     V = ParseD(row.Cells["v"].Value, 16),
-                    ButeeAval = aval,
                     Reprise = row.Cells["rep"].Value is bool b && b
-                });
+                };
+                list.Add(op);
             }
             piece.Sequence = list;
         }
 
-        // ajoute une PASSE sur le pli courant (reprise : marquage puis fermeture)
         void AddOp()
         {
-            if (piece.NbPlis == 0) { AddBend(); return; }
-            var src = (step >= 0 && step < piece.Sequence.Count) ? piece.Sequence[step] : null;
-            int bend = src?.Bend ?? piece.NbPlis - 1;
-            piece.Sequence.Add(new Operation
-            {
-                Bend = bend,
-                AngleCible = 90,
-                Sens = src?.Sens ?? Sens.Haut,
-                V = src?.V ?? ParseD(VStrings()[0], 16),
-                ButeeAval = src?.ButeeAval ?? false,
-                Reprise = true
-            });
-            step = piece.Sequence.Count - 1;
-            Recompute();
+            ReadSeq();
+            int bend = piece.NbPlis > 0 ? 0 : 0;
+            piece.Sequence.Add(new Operation { Bend = bend, AngleCible = 90, Sens = Sens.Haut, V = 16 });
+            ReloadGridsFromPiece(); step = piece.Sequence.Count - 1; Recompute();
         }
-
-        // supprime la passe seule, sans toucher au pli ni aux pans
-        void DelOpAt(int idx)
+        void DelOp()
         {
-            if (idx < 0 || idx >= piece.Sequence.Count) return;
-            piece.Sequence.RemoveAt(idx);
-            step = Math.Max(0, Math.Min(step, piece.Sequence.Count - 1));
-            Recompute();
+            ReadSeq();
+            int idx = dgSeq.CurrentCell != null ? dgSeq.CurrentCell.RowIndex : piece.Sequence.Count - 1;
+            if (idx >= 0 && idx < piece.Sequence.Count) piece.Sequence.RemoveAt(idx);
+            ReloadGridsFromPiece(); step = Math.Min(step, piece.Sequence.Count - 1); Recompute();
         }
-
-        void MoveOpAt(int idx, int dir)
+        void MoveOp(int dir)
         {
+            ReadSeq();
+            int idx = dgSeq.CurrentCell != null ? dgSeq.CurrentCell.RowIndex : -1;
             int j = idx + dir;
-            if (idx < 0 || idx >= piece.Sequence.Count || j < 0 || j >= piece.Sequence.Count) return;
-            (piece.Sequence[idx], piece.Sequence[j]) = (piece.Sequence[j], piece.Sequence[idx]);
-            step = j;
-            Recompute();
-            SelectRowBoth(j);   // le curseur suit la ligne, sinon on deplace la voisine au clic suivant
-        }
-
-        void SelectRowBoth(int r)
-        {
-            if (r >= 0 && r < dgSeq.Rows.Count)
-            {
-                _load = true;
-                var m = dgSeq.EditMode;
-                dgSeq.EditMode = DataGridViewEditMode.EditProgrammatically;
-                dgSeq.CurrentCell = dgSeq.Rows[r].Cells["r"];
-                dgSeq.EditMode = m;
-                _load = false;
-            }
-            pupitre.SelectRow(r);
-        }
-
-        static Operation CloneOp(Operation o) => new Operation
-        {
-            Bend = o.Bend, AngleCible = o.AngleCible, Sens = o.Sens,
-            V = o.V, ButeeAval = o.ButeeAval, Reprise = o.Reprise
-        };
-
-        // ================================================================
-        //  Recherche d'un ordre de pliage sans collision.
-        //  Parcours en profondeur avec elagage : des qu'une etape tape
-        //  l'outillage, on abandonne toute la branche. Chaque pli est
-        //  essaye dans les deux sens d'engagement (butee amont / aval).
-        //  Les passes d'un meme pli gardent leur ordre relatif (le
-        //  marquage reste avant la fermeture).
-        // ================================================================
-        void AutoOrdre()
-        {
-            int n = piece.Sequence.Count;
-            if (n < 2) return;
-
-            var all = new List<Operation>(piece.Sequence);
-            var tmp = new Piece { Epaisseur = piece.Epaisseur, CotesExterieures = piece.CotesExterieures };
-            tmp.Segments.AddRange(piece.Segments);
-
-            var used   = new bool[n];
-            var cur    = new List<Operation>(n);
-            var curIdx = new List<int>(n);
-            List<Operation> best = null;
-            double bestScore = double.MaxValue;
-            int nodes = 0;
-            var sw = Stopwatch.StartNew();
-            bool cap = false;
-
-            bool EtapeOk()
-            {
-                tmp.Sequence = cur;
-                var stt = FoldEngine.Build(tmp, cur.Count - 1, cfg, curPoin, curMat, cfg.Embase);
-                foreach (var c in stt.Collisions) if (c.Bloquant) return false;
-                return true;
-            }
-
-            double Score()
-            {
-                double sc = 0;
-                var plies = new List<Operation>();
-                for (int i = 0; i < cur.Count; i++)
-                {
-                    var o = cur[i];
-                    plies.Add(o);
-                    tmp.Sequence = plies;
-                    var angs = FoldEngine.AnglesAtStep(tmp, i, out _);
-                    double r = FoldEngine.ButeeReelle(piece, angs, o.Bend, o.ButeeAval);
-                    if (r < cfg.ButeeMin) sc += 60;                                   // hors d'atteinte : trusquin
-                    if (r > cfg.ButeeMax) sc += 300;                                  // hors course butee
-                    if (i > 0 && o.ButeeAval != cur[i - 1].ButeeAval) sc += 120;      // engager la piece a l'envers
-                    if (i > 0 && o.Sens != cur[i - 1].Sens) sc += 200;                // RETOURNER la piece (vallee <-> crete)
-                    if (i > 0 && Math.Abs(o.V - cur[i - 1].V) > 0.01) sc += 40;       // changer de matrice
-                    sc += Math.Abs(i - curIdx[i]);                                    // rester proche du saisi
-                }
-                return sc;
-            }
-
-            void Dfs()
-            {
-                if (++nodes > 400000 || sw.ElapsedMilliseconds > 4000) { cap = true; return; }
-                if (cur.Count == n)
-                {
-                    double sc = Score();
-                    if (sc < bestScore)
-                    {
-                        bestScore = sc;
-                        best = new List<Operation>(n);
-                        foreach (var o in cur) best.Add(CloneOp(o));
-                    }
-                    return;
-                }
-                for (int i = 0; i < n; i++)
-                {
-                    if (used[i]) continue;
-                    // une passe anterieure sur le meme pli n'est pas encore posee -> interdit
-                    bool bloque = false;
-                    for (int j = 0; j < i; j++)
-                        if (!used[j] && all[j].Bend == all[i].Bend) { bloque = true; break; }
-                    if (bloque) continue;
-
-                    for (int k = 0; k < 2; k++)
-                    {
-                        bool aval = k == 0 ? all[i].ButeeAval : !all[i].ButeeAval;
-                        var cand = CloneOp(all[i]); cand.ButeeAval = aval;
-                        cur.Add(cand); curIdx.Add(i);
-                        if (EtapeOk()) { used[i] = true; Dfs(); used[i] = false; }
-                        cur.RemoveAt(cur.Count - 1); curIdx.RemoveAt(curIdx.Count - 1);
-                        if (cap) return;
-                    }
-                }
-            }
-
-            Cursor.Current = Cursors.WaitCursor;
-            Dfs();
-            Cursor.Current = Cursors.Default;
-
-            if (best == null)
-            {
-                MessageBox.Show(this,
-                    "Aucun ordre de pliage ne passe avec cet outillage.\n\n" +
-                    $"{nodes} combinaisons explorées, les deux sens d'engagement compris.\n\n" +
-                    "La pièce se referme sur le poinçon quel que soit l'ordre : il faut un autre " +
-                    "poinçon (col de cygne plus dégagé), ou revoir les cotes.",
-                    "Ordre de pliage", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            piece.Sequence = best;
-            step = 0;
-            Recompute();
-            SelectRowBoth(0);
-
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine($"Ordre trouvé en {nodes} nœuds ({sw.ElapsedMilliseconds} ms).");
-            if (cap) sb.AppendLine("Recherche écourtée : la solution retenue est valide mais peut-être pas la meilleure.");
-            sb.AppendLine();
-            for (int i = 0; i < best.Count; i++)
-            {
-                var o = best[i];
-                var stI = FoldEngine.Build(piece, i, cfg, curPoin, curMat, cfg.Embase);
-                sb.AppendLine($"  {i + 1}.  pli {o.Bend + 1}   {o.AngleCible:0}°   V{(int)o.V}   " +
-                              $"butée {stI.ButeeDistance:0.#} mm   {(o.ButeeAval ? "⇄ pan aval" : "pan amont")}");
-            }
-            MessageBox.Show(this, sb.ToString(), "Ordre de pliage", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            if (idx < 0 || j < 0 || j >= piece.Sequence.Count) return;
+            var tmp = piece.Sequence[idx]; piece.Sequence[idx] = piece.Sequence[j]; piece.Sequence[j] = tmp;
+            ReloadGridsFromPiece();
+            if (idx >= 0 && j < dgSeq.Rows.Count) dgSeq.CurrentCell = dgSeq.Rows[j].Cells["pli"];
+            step = j; Recompute();
         }
 
         static double ParseD(object o, double def)
         {
             if (o == null) return def;
-            string t = o.ToString().Trim().Replace(',', '.').Replace("\u00b0", "");
+            string t = o.ToString().Trim().Replace(',', '.');
             return double.TryParse(t, NumberStyles.Any, CultureInfo.InvariantCulture, out var v) ? v : def;
         }
 
         // -------------------------------------------------- recompute --
-        // SetStep / Redraw : changement d'ETAPE. Aucune grille n'est reconstruite.
         void SetStep(int s)
         {
-            step = piece.Sequence.Count == 0 ? 0 : Math.Max(0, Math.Min(piece.Sequence.Count - 1, s));
+            if (piece.Sequence.Count == 0) { step = 0; }
+            else step = Math.Max(0, Math.Min(piece.Sequence.Count - 1, s));
             _load = true;
             tb.Maximum = Math.Max(0, piece.Sequence.Count - 1);
             tb.Value = Math.Min(tb.Maximum, Math.Max(tb.Minimum, step));
@@ -1017,17 +407,13 @@ namespace SimulateurPliage
             Redraw();
         }
 
-        // Recompute : changement de STRUCTURE. On reconstruit les deux grilles.
         void Recompute()
         {
             _load = true;
-            step = Math.Max(0, Math.Min(Math.Max(0, piece.Sequence.Count - 1), step));
             tb.Maximum = Math.Max(0, piece.Sequence.Count - 1);
+            step = Math.Max(0, Math.Min(tb.Maximum, step));
             tb.Value = Math.Min(tb.Maximum, Math.Max(tb.Minimum, step));
             _load = false;
-
-            FillSeqGrid();
-            pupitre.SetData(piece, step, curPoin, curMat, cfg.Embase);
             BuildEnumeration();
             Redraw();
         }
@@ -1036,11 +422,8 @@ namespace SimulateurPliage
         {
             StepState st = FoldEngine.Build(piece, step, cfg, curPoin, curMat, cfg.Embase);
             view.SetState(st, piece, StepColor(step));
-            pupitre.SetStep(step);                       // recoloriage seul
-            developpe.SetData(piece, step, Retournements());
-            RecalcSeqHits();
-            dgSeq.Invalidate();
-
+            if (pupitre != null) pupitre.SetData(piece, step, curPoin, curMat, cfg.Embase);
+            if (developpe != null) developpe.SetData(piece, step, Retournements());
             if (piece.Sequence.Count == 0)
             {
                 lblStep.Text = "Aucune opération";
@@ -1089,7 +472,6 @@ namespace SimulateurPliage
                 bool hit = st.Collisions.Count > 0;
                 bool flip = i < flips.Length && flips[i];
                 Color col = hit ? CRouge : (o.Reprise ? CVert : CBleu);
-
                 string etat = hit ? ("COLLISION: " + st.Collisions[0].Type) : (o.Reprise ? "reprise" : "direct");
                 if (flip) etat += "  ⟲ retourner";
                 string line = string.Format(CultureInfo.InvariantCulture,
