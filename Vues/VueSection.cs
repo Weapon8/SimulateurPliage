@@ -211,23 +211,31 @@ namespace SimulateurPliage.Vues
         }
 
         /// <summary>
-        /// Butée arrière : une lame rouge horizontale au niveau de la face matrice (y=0),
-        /// côté butée (à droite), posée à la cote lue. Elle se décale d'étape en étape
-        /// avec le pan pour visualiser où la tôle vient buter.
+        /// Butée arrière : le doigt, posé sur la face matrice à la cote lue (côté droit).
+        /// La FACE D'APPUI tôle (0 → DoigtContact, ≈10 mm) est en rouge : le bord de tôle
+        /// ne bute que s'il tombe dans cette bande. Au-dessus (→ DoigtHauteur, ≈35 mm)
+        /// c'est le support du doigt, en gris. Se décale d'étape en étape avec le pan.
         /// </summary>
         void DessinerButee(Graphics g)
         {
             if (etat?.Op == null || etat.ButeeDistance <= 0) return;
 
-            double x0 = etat.ButeeDistance;                 // cote butée, côté droit
-            double xDroite = (Width - 24 - ox) / sc;        // bord droit visible, en mm
-            if (xDroite <= x0) xDroite = x0 + 30;
+            double x = etat.ButeeDistance;
+            double hc = plieuse?.DoigtContact > 0 ? plieuse.DoigtContact : 10;
+            double ht = plieuse?.DoigtHauteur > 0 ? plieuse.DoigtHauteur : 35;
+            if (ht < hc) ht = hc;
 
-            var a = T(x0, 0);
-            var b = T(xDroite, 0);
-            using var pn = new Pen(Theme.Alerte, 3f)
+            // support (contact → sommet) : gris, plus fin
+            if (ht > hc)
+            {
+                using var pnS = new Pen(Theme.Matrice, 5f)
+                { StartCap = LineCap.Round, EndCap = LineCap.Round };
+                g.DrawLine(pnS, T(x, hc), T(x, ht));
+            }
+            // face d'appui tôle (0 → contact) : rouge, épais
+            using var pn = new Pen(Theme.Alerte, 7f)
             { StartCap = LineCap.Round, EndCap = LineCap.Round };
-            g.DrawLine(pn, a, b);
+            g.DrawLine(pn, T(x, 0), T(x, hc));
         }
 
         void Legende(Graphics g)

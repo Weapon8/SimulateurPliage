@@ -51,6 +51,7 @@ namespace SimulateurPliage.Vues
 
             Construire();
             ChargerPans();
+            EssayerOrdreAuto(out _, out _);   // ouvre déjà en ordre confort (⇄), pas cru
             Recalculer();
         }
 
@@ -360,6 +361,28 @@ namespace SimulateurPliage.Vues
         /// </summary>
         void OrdreAuto()
         {
+            if (EssayerOrdreAuto(out int plat, out int face))
+            {
+                string m = "Ordre sans collision trouvé.";
+                if (plat > 0) m += $"\n{plat} retournement(s) à plat (⇄) — confort opérateur.";
+                if (face > 0) m += $"\n{face} retournement(s) dessus/dessous (⇅).";
+                if (plat == 0 && face == 0) m += "\nAucune manipulation de la pièce.";
+                MessageBox.Show(m, "Ordre auto", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            else
+            {
+                MessageBox.Show("Aucun ordre sans collision trouvé, même en retournant la pièce.",
+                    "Ordre auto", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        /// <summary>
+        /// Résout la séquence sans UI : applique l'ordre trouvé, ou restaure l'existant.
+        /// Utilisé au démarrage (silencieux) et par le bouton Ordre auto.
+        /// </summary>
+        bool EssayerOrdreAuto(out int plat, out int face)
+        {
+            plat = 0; face = 0;
             var initial = new List<Operation>(piece.Sequence);
             var ordre = new List<Operation>();
             var restant = new List<Operation>(initial);
@@ -368,32 +391,26 @@ namespace SimulateurPliage.Vues
             {
                 piece.Sequence = ordre;
                 etape = 0;
-                Recalculer();
-
-                int plat = 0, face = 0;
                 foreach (var o in piece.Sequence)
                 {
                     if (o.ButeeAval) plat++;
                     if (o.Retournee) face++;
                 }
-                string m = "Ordre sans collision trouvé.";
-                if (plat > 0) m += $"\n{plat} rotation(s) 180° à plat (⇄).";
-                if (face > 0) m += $"\n{face} retournement(s) dessus/dessous (⇅).";
-                if (plat == 0 && face == 0) m += "\nAucune manipulation de la pièce.";
-                MessageBox.Show(m, "Ordre auto", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            else
-            {
-                piece.Sequence = initial;
                 Recalculer();
-                MessageBox.Show("Aucun ordre sans collision trouvé, même en retournant la pièce.",
-                    "Ordre auto", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return true;
             }
+
+            piece.Sequence = initial;
+            Recalculer();
+            return false;
         }
 
-        // (ButeeAval, Retournee) du moins manipulé au plus manipulé
+        // Confort opérateur : on RETOURNE À PLAT (⇄) dès que c'est possible. Une tôle
+        // qu'on tourne à plat sur la table se manipule sans forcer, alors que tenir un
+        // grand pan en l'air casse le dos (intérimaires compris). Donc ButeeAval en
+        // premier, direct seulement si le retournement ne pose pas à plat. ⇅ en dernier.
         static readonly (bool aval, bool face)[] Engagements =
-            { (false, false), (true, false), (false, true), (true, true) };
+            { (true, false), (false, false), (true, true), (false, true) };
 
         bool Explorer(List<Operation> ordre, List<Operation> restant)
         {
@@ -439,7 +456,7 @@ namespace SimulateurPliage.Vues
             piece = Piece.Demo();
             _fichier = null;
             etape = 0;
-            AppliquerPiece();
+            AppliquerPiece(resoudre: true);
         }
 
         void OuvrirPiece()
@@ -496,7 +513,7 @@ namespace SimulateurPliage.Vues
         }
 
         /// <summary>Remet toute l'UI en phase avec la pièce courante (neuve ou chargée).</summary>
-        void AppliquerPiece()
+        void AppliquerPiece(bool resoudre = false)
         {
             piece.NormaliserReprises();
             _load = true;
@@ -508,7 +525,7 @@ namespace SimulateurPliage.Vues
             if (cbCotes != null) cbCotes.SelectedIndex = piece.CotesExterieures ? 1 : 0;
             _load = false;
             ChargerPans();
-            Recalculer();
+            if (resoudre) EssayerOrdreAuto(out _, out _); else Recalculer();
             MajTitre();
         }
 

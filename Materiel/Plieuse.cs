@@ -27,7 +27,8 @@ namespace SimulateurPliage.Materiel
 
         // À mesurer sur machine.
         public double TonnageMax = 0;       // tonnage machine (t)
-        public double DoigtHauteur = 0;     // hauteur des doigts au-dessus de la face matrice
+        public double DoigtHauteur = 0;     // hauteur totale du doigt au-dessus de la face matrice
+        public double DoigtContact = 10;    // hauteur de la FACE D'APPUI tôle (le reste = support)
 
         public override string ToString() => Nom;
 
@@ -40,6 +41,7 @@ namespace SimulateurPliage.Materiel
                 ButeeLatMin = 100, ButeeLatMax = 2900,
                 LongPliMin = 100, LongPliMax = 4050,
                 Arcade = 3000, HauteurLibre = 120, TablierDeport = 50,
+                DoigtHauteur = 35, DoigtContact = 10,
             },
             new Plieuse
             {
@@ -50,6 +52,7 @@ namespace SimulateurPliage.Materiel
                 ButeeLatMin = 100, ButeeLatMax = 1500,
                 LongPliMin = 100, LongPliMax = 2000,
                 Arcade = 1600, HauteurLibre = 120, TablierDeport = 50,
+                DoigtHauteur = 35, DoigtContact = 10,
             },
         };
     }
