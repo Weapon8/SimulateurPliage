@@ -50,11 +50,14 @@ namespace SimulateurPliage.Vues
             int actif = -1;
             for (int i = 0; i < piece.Sequence.Count; i++)
             {
-                int b = piece.Sequence[i].Bend;
-                if (b >= 0 && b < nb && flips != null && i < flips.Length && flips[i]) retourne[b] = true;
+                var op = piece.Sequence[i];
+                int b = op.Bend;
+                bool flip = (flips != null && i < flips.Length && flips[i]) || op.Retournee;
+                if (b >= 0 && b < nb && flip) retourne[b] = true;
             }
             if (etape >= 0 && etape < piece.Sequence.Count) actif = piece.Sequence[etape].Bend;
-            bool flipCourant = flips != null && etape >= 0 && etape < flips.Length && flips[etape];
+            bool flipCourant = (flips != null && etape >= 0 && etape < flips.Length && flips[etape])
+                             || (etape >= 0 && etape < piece.Sequence.Count && piece.Sequence[etape].Retournee);
 
             const int mL = 40, mR = 40, top = 78;
             double sc = (Width - mL - mR) / total;

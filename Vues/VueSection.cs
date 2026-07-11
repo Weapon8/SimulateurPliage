@@ -59,6 +59,7 @@ namespace SimulateurPliage.Vues
             if (poinconC != null) Polygone(g, poinconC, ep / 2.0, Theme.Outil, Color.FromArgb(130, 138, 150));
             HauteurLibre(g, hLibre);
             DessinerTole(g, ep, assise);
+            DessinerButee(g);
             Legende(g);
         }
 
@@ -207,6 +208,26 @@ namespace SimulateurPliage.Vues
             using var pn = new Pen(Theme.Grille, 1f);
             for (int x = 0; x < Width; x += 40) g.DrawLine(pn, x, 0, x, Height);
             for (int y = 0; y < Height; y += 40) g.DrawLine(pn, 0, y, Width, y);
+        }
+
+        /// <summary>
+        /// Butée arrière : une lame rouge horizontale au niveau de la face matrice (y=0),
+        /// côté butée (à droite), posée à la cote lue. Elle se décale d'étape en étape
+        /// avec le pan pour visualiser où la tôle vient buter.
+        /// </summary>
+        void DessinerButee(Graphics g)
+        {
+            if (etat?.Op == null || etat.ButeeDistance <= 0) return;
+
+            double x0 = etat.ButeeDistance;                 // cote butée, côté droit
+            double xDroite = (Width - 24 - ox) / sc;        // bord droit visible, en mm
+            if (xDroite <= x0) xDroite = x0 + 30;
+
+            var a = T(x0, 0);
+            var b = T(xDroite, 0);
+            using var pn = new Pen(Theme.Alerte, 3f)
+            { StartCap = LineCap.Round, EndCap = LineCap.Round };
+            g.DrawLine(pn, a, b);
         }
 
         void Legende(Graphics g)

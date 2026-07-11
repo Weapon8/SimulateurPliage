@@ -18,6 +18,7 @@ namespace SimulateurPliage.Vues
 
         int etape;
         bool _load;
+        string _fichier;   // chemin du .plt.json courant ; null = pièce jamais enregistrée
 
         ComboBox cbMachine, cbPoincon, cbMatrice, cbCotes;
         NumericUpDown nNbPlis, nEpaisseur, nHauteurPoincon;
@@ -80,7 +81,19 @@ namespace SimulateurPliage.Vues
             racine.Controls.Add(zoneDroite, 1, 0);
 
             int y = 4;
-            y = Titre(gauche, "MACHINE", y, false);
+            y = Titre(gauche, "FICHIER", y, false);
+            var bNouveau = Bouton("Nouveau", 96, NouvellePiece);
+            bNouveau.Left = 12; bNouveau.Top = y; gauche.Controls.Add(bNouveau);
+            var bOuvrir = Bouton("Ouvrir", 96, OuvrirPiece);
+            bOuvrir.Left = 112; bOuvrir.Top = y; gauche.Controls.Add(bOuvrir);
+            var bEnreg = Bouton("Enregistrer", 118, EnregistrerPiece);
+            bEnreg.Left = 212; bEnreg.Top = y; gauche.Controls.Add(bEnreg);
+            y += 34;
+            var bEnregSous = Bouton("Enregistrer sous…", 326, EnregistrerPieceSous);
+            bEnregSous.Left = 12; bEnregSous.Top = y; gauche.Controls.Add(bEnregSous);
+            y += 38;
+
+            y = Titre(gauche, "MACHINE", y);
             cbMachine = Combo(gauche, "Plieuse", Noms(atelier.Plieuses), 0, ref y, i =>
             {
                 plieuse = atelier.Plieuses[i];
@@ -419,6 +432,91 @@ namespace SimulateurPliage.Vues
             return matrice != null && matrice.Vs.Count > 0 ? matrice.Vs[0].V : 16;
         }
 
+        // -------------------------------------------------- fichier pièce --
+
+        void NouvellePiece()
+        {
+            piece = Piece.Demo();
+            _fichier = null;
+            etape = 0;
+            AppliquerPiece();
+        }
+
+        void OuvrirPiece()
+        {
+            using var d = new OpenFileDialog { Filter = PieceIO.Filtre, Title = "Ouvrir une pièce" };
+            if (d.ShowDialog(this) != DialogResult.OK) return;
+            try
+            {
+                piece = PieceIO.Charger(d.FileName);
+                _fichier = d.FileName;
+                etape = 0;
+                AppliquerPiece();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Lecture impossible :\n" + ex.Message,
+                    "Ouvrir", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        void EnregistrerPiece()
+        {
+            if (string.IsNullOrEmpty(_fichier)) { EnregistrerPieceSous(); return; }
+            Sauver(_fichier);
+        }
+
+        void EnregistrerPieceSous()
+        {
+            using var d = new SaveFileDialog
+            {
+                Filter = PieceIO.Filtre, Title = "Enregistrer la pièce",
+                DefaultExt = PieceIO.Extension, AddExtension = true,
+                FileName = "piece." + PieceIO.Extension
+            };
+            if (d.ShowDialog(this) != DialogResult.OK) return;
+            _fichier = d.FileName;
+            Sauver(_fichier);
+        }
+
+        void Sauver(string chemin)
+        {
+            try
+            {
+                LirePans();
+                piece.NormaliserReprises();
+                PieceIO.Sauver(piece, chemin);
+                MajTitre();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Écriture impossible :\n" + ex.Message,
+                    "Enregistrer", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        /// <summary>Remet toute l'UI en phase avec la pièce courante (neuve ou chargée).</summary>
+        void AppliquerPiece()
+        {
+            piece.NormaliserReprises();
+            _load = true;
+            if (nNbPlis != null)
+                nNbPlis.Value = Math.Min(nNbPlis.Maximum, Math.Max(nNbPlis.Minimum, (decimal)piece.NbPlis));
+            if (nEpaisseur != null)
+                nEpaisseur.Value = (decimal)Math.Max((double)nEpaisseur.Minimum,
+                                    Math.Min((double)nEpaisseur.Maximum, piece.Epaisseur));
+            if (cbCotes != null) cbCotes.SelectedIndex = piece.CotesExterieures ? 1 : 0;
+            _load = false;
+            ChargerPans();
+            Recalculer();
+            MajTitre();
+        }
+
+        void MajTitre() =>
+            Text = string.IsNullOrEmpty(_fichier)
+                ? "Simulateur de pliage — collisions outillage · TolTem"
+                : $"Simulateur de pliage — {System.IO.Path.GetFileName(_fichier)} · TolTem";
+
         void ChargerPans()
         {
             _load = true;
@@ -453,6 +551,7 @@ namespace SimulateurPliage.Vues
 
         void Recalculer()
         {
+            piece.NormaliserReprises();
             _load = true;
             tbEtape.Maximum = Math.Max(0, piece.Sequence.Count - 1);
             etape = Math.Max(0, Math.Min(tbEtape.Maximum, etape));

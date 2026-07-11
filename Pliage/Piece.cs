@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace SimulateurPliage.Pliage
 {
@@ -34,8 +35,8 @@ namespace SimulateurPliage.Pliage
         public List<double> Segments = new();    // NbPlis + 1 pans
         public List<Operation> Sequence = new();
 
-        public int NbPlis => Math.Max(0, Segments.Count - 1);
-        public double Developpe { get { double t = 0; foreach (var s in Segments) t += s; return t; } }
+        [JsonIgnore] public int NbPlis => Math.Max(0, Segments.Count - 1);
+        [JsonIgnore] public double Developpe { get { double t = 0; foreach (var s in Segments) t += s; return t; } }
 
         /// <summary>Cote butée, toujours exprimée en intérieur (comme une CN Cybelec/Delem).</summary>
         public double ButeeInt(int i)
@@ -73,6 +74,22 @@ namespace SimulateurPliage.Pliage
                 if (Sequence[i].Sens != courant) { f[i] = true; courant = Sequence[i].Sens; }
             }
             return f;
+        }
+
+        /// <summary>
+        /// Marque comme reprise toute passe dont la ligne de pli a déjà été formée
+        /// par une opération antérieure de la séquence. Une reprise ne référence pas
+        /// la butée comme un premier pli : le pan est déjà plié, la passe re-frappe.
+        /// C'est une donnée STRUCTURELLE, déduite de la séquence, pas un choix libre.
+        /// </summary>
+        public void NormaliserReprises()
+        {
+            var vus = new HashSet<int>();
+            foreach (var o in Sequence)
+            {
+                o.Reprise = vus.Contains(o.Bend);
+                vus.Add(o.Bend);
+            }
         }
 
         /// <summary>Angle intérieur d'une ligne juste avant l'étape s.</summary>

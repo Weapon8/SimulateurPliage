@@ -130,7 +130,7 @@ namespace SimulateurPliage.Vues
             dg.CellBeginEdit += (s, e) =>
             {
                 string col = dg.Columns[e.ColumnIndex].Name;
-                if (col == "ord" || col == "pli" || col == "del") { e.Cancel = true; return; }
+                if (col == "ord" || col == "pli" || col == "del" || col == "rep") { e.Cancel = true; return; }
                 if (e.RowIndex == FinRow && col != "r") e.Cancel = true;
             };
 
@@ -272,7 +272,7 @@ namespace SimulateurPliage.Vues
             string ep = piece.Epaisseur.ToString("0.##", CultureInfo.InvariantCulture);
             string smode = piece.CotesExterieures ? "extérieures" : "intérieures";
             lblFoot.Text = $"L développé {dev:0.#} mm  ·  {piece.Segments.Count} pans  ·  ép {ep} mm  ·  cotes {smode}  ·  " +
-                           "R = cote lue à la butée  ·  ⇄ = rotation 180° à plat  ·  ⇅ = retournée dessus/dessous  ·  ✕ supprime la passe";
+                           "R = cote lue à la butée  ·  ⇄ = rotation 180° à plat  ·  ⇅ = retournée dessus/dessous  ·  REPRISE = auto (pli déjà formé)  ·  ✕ supprime la passe";
         }
 
         void RecalcHits()
@@ -380,10 +380,11 @@ namespace SimulateurPliage.Vues
                     V = ParseD(row.Cells["v"].Value, 16),
                     ButeeAval = aval,
                     Retournee = row.Cells["ret"].Value is bool br && br,
-                    Reprise = row.Cells["rep"].Value is bool b && b
+                    Reprise = false   // déduit après coup par NormaliserReprises
                 });
             }
             piece.Sequence = list;
+            piece.NormaliserReprises();
         }
 
         // "P2" -> 2 ; "90°" -> 90 ; "40,5" -> 40.5
