@@ -31,9 +31,9 @@ namespace SimulateurPliage.Vues
         public void Outillage(Plieuse pl, Poincon po, Matrice ma, Embase em)
         { plieuse = pl; poincon = po; matrice = ma; embase = em; Invalidate(); }
 
-        // Sens horizontal de l'affichage : -1 = butée à droite / opérateur à gauche
-        // (miroir gauche/droite). N'affecte QUE le rendu, pas la géométrie du pli.
-        int sensX = -1;
+        // Sens horizontal FIXE : poinçon (col de cygne) + butée à DROITE, la tôle se
+        // développe vers la gauche — comme toutes les plieuses. +1 = aucun miroir.
+        int sensX = 1;
 
         PointF T(double x, double y) => new((float)(ox + sensX * x * sc), (float)(oy - y * sc));
         PointF T(Pt p) => T(p.X, p.Y);
@@ -217,31 +217,49 @@ namespace SimulateurPliage.Vues
         }
 
         /// <summary>
-        /// Butée arrière : le doigt, posé sur la face matrice à la cote lue (côté droit).
-        /// La FACE D'APPUI tôle (0 → DoigtContact, ≈10 mm) est en rouge : le bord de tôle
-        /// ne bute que s'il tombe dans cette bande. Au-dessus (→ DoigtHauteur, ≈35 mm)
-        /// c'est le support du doigt, en gris. Se décale d'étape en étape avec le pan.
+        /// Butée arrière (côté droit) : doigt en L posé au niveau de la face matrice à la
+        /// cote lue — pied qui s'étend vers l'arrière, face d'appui basse (0 → DoigtContact,
+        /// ≈10 mm) mise en évidence en orange (là où le bord de tôle bute), corps qui remonte
+        /// jusqu'à DoigtHauteur avec l'axe rond en tête. Se décale d'étape en étape.
         /// </summary>
         void DessinerButee(Graphics g)
         {
             if (etat?.Op == null || etat.ButeeDistance <= 0) return;
 
-            double x = etat.ButeeDistance;
+            double bd = etat.ButeeDistance;
             double hc = plieuse?.DoigtContact > 0 ? plieuse.DoigtContact : 10;
             double ht = plieuse?.DoigtHauteur > 0 ? plieuse.DoigtHauteur : 35;
-            if (ht < hc) ht = hc;
+            if (ht < hc + 4) ht = hc + 4;
+            const double postW = 8, footLen = 26, footH = 6;
 
-            // support (contact → sommet) : gris, plus fin
-            if (ht > hc)
+            // corps du doigt en L (métal) : face d'appui à gauche (vers la tôle),
+            // pied + corps vers l'arrière (droite).
+            var corps = new[]
             {
-                using var pnS = new Pen(Theme.Matrice, 5f)
-                { StartCap = LineCap.Round, EndCap = LineCap.Round };
-                g.DrawLine(pnS, T(x, hc), T(x, ht));
+                T(bd, ht), T(bd + postW, ht), T(bd + postW, footH),
+                T(bd + footLen, footH), T(bd + footLen, 0), T(bd, 0)
+            };
+            using (var b = new SolidBrush(Theme.Outil))
+            using (var pnC = new Pen(Color.FromArgb(138, 146, 158), 1.3f) { LineJoin = LineJoin.Round })
+            {
+                g.FillPolygon(b, corps);
+                g.DrawPolygon(pnC, corps);
             }
-            // face d'appui tôle (0 → contact) : rouge, épais
-            using var pn = new Pen(Theme.Alerte, 7f)
+
+            // axe rond en tête
+            var rod = T(bd + postW / 2, ht);
+            float rr = (float)(4 * sc);
+            using (var b = new SolidBrush(Theme.Matrice))
+            using (var pnR = new Pen(Color.FromArgb(138, 146, 158), 1.2f))
+            {
+                g.FillEllipse(b, rod.X - rr, rod.Y - rr, 2 * rr, 2 * rr);
+                g.DrawEllipse(pnR, rod.X - rr, rod.Y - rr, 2 * rr, 2 * rr);
+            }
+
+            // face d'appui tôle (0 → contact) : bande orange sur le bord avant
+            using var pn = new Pen(Theme.Accent, 3.5f)
             { StartCap = LineCap.Round, EndCap = LineCap.Round };
-            g.DrawLine(pn, T(x, 0), T(x, hc));
+            g.DrawLine(pn, T(bd, 0), T(bd, hc));
         }
 
         void Legende(Graphics g)
