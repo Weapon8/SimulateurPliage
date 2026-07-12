@@ -139,32 +139,32 @@ namespace SimulateurPliage.Vues
             // --- AU MILIEU : fichier + bibliothèque de profils ---
             y = Titre(gauche, "FICHIER", y);
             var bNouveau = Bouton("Nouveau", 96, NouvellePiece);
-            bNouveau.Left = 12; bNouveau.Top = y; gauche.Controls.Add(bNouveau);
+            bNouveau.Left = 16; bNouveau.Top = y; gauche.Controls.Add(bNouveau);
             var bOuvrir = Bouton("Ouvrir", 96, OuvrirPiece);
-            bOuvrir.Left = 112; bOuvrir.Top = y; gauche.Controls.Add(bOuvrir);
+            bOuvrir.Left = 116; bOuvrir.Top = y; gauche.Controls.Add(bOuvrir);
             var bEnreg = Bouton("Enregistrer", 118, EnregistrerPiece);
-            bEnreg.Left = 212; bEnreg.Top = y; gauche.Controls.Add(bEnreg);
+            bEnreg.Left = 216; bEnreg.Top = y; gauche.Controls.Add(bEnreg);
             y += 34;
-            var bEnregSous = Bouton("Enregistrer sous…", 326, EnregistrerPieceSous);
-            bEnregSous.Left = 12; bEnregSous.Top = y; gauche.Controls.Add(bEnregSous);
+            var bEnregSous = Bouton("Enregistrer sous…", 318, EnregistrerPieceSous);
+            bEnregSous.Left = 16; bEnregSous.Top = y; gauche.Controls.Add(bEnregSous);
             y += 38;
 
             y = Titre(gauche, "PROFILS", y);
             txtNom = Texte(gauche, "Nom", piece.Nom, ref y, s => piece.Nom = s);
             txtChantier = Texte(gauche, "Chantier", piece.Chantier, ref y, s => piece.Chantier = s);
             gauche.Controls.Add(new Label
-            { Text = "Bibliothèque", Left = 12, Top = y + 4, Width = 100, ForeColor = Theme.Discret });
+            { Text = "Bibliothèque", Left = 16, Top = y + 4, Width = 100, ForeColor = Theme.Discret });
             cbProfils = new ComboBox
             {
-                Left = 12, Top = y + 24, Width = 326, DropDownStyle = ComboBoxStyle.DropDownList,
+                Left = 16, Top = y + 24, Width = 318, DropDownStyle = ComboBoxStyle.DropDownList,
                 BackColor = Theme.Champ, ForeColor = Theme.Texte, FlatStyle = FlatStyle.Flat
             };
             gauche.Controls.Add(cbProfils);
             y += 56;
             var bEnrProfil = Bouton("Enregistrer", 104, EnregistrerProfil);
-            bEnrProfil.Left = 12; bEnrProfil.Top = y; gauche.Controls.Add(bEnrProfil);
+            bEnrProfil.Left = 16; bEnrProfil.Top = y; gauche.Controls.Add(bEnrProfil);
             var bChgProfil = Bouton("Charger", 104, ChargerProfil);
-            bChgProfil.Left = 120; bChgProfil.Top = y; gauche.Controls.Add(bChgProfil);
+            bChgProfil.Left = 122; bChgProfil.Top = y; gauche.Controls.Add(bChgProfil);
             var bSupProfil = Bouton("Supprimer", 104, SupprimerProfil);
             bSupProfil.Left = 228; bSupProfil.Top = y; gauche.Controls.Add(bSupProfil);
             y += 38;
@@ -172,11 +172,11 @@ namespace SimulateurPliage.Vues
 
             // --- EN BAS : réglages machine détaillés, repliés par défaut ---
             gauche.Controls.Add(new Panel
-            { Left = 10, Top = y + 6, Width = LargeurPanneau + 10, Height = 1, BackColor = Theme.Separateur });
+            { Left = 16, Top = y + 6, Width = LargeurPanneau, Height = 1, BackColor = Theme.Separateur });
             y += 12;
             btnMachHead = new Button
             {
-                Text = "▸  RÉGLAGES MACHINE (cotes)", Left = 10, Top = y, Width = 328, Height = 26,
+                Text = "▸  RÉGLAGES MACHINE (cotes)", Left = 16, Top = y, Width = 316, Height = 26,
                 FlatStyle = FlatStyle.Flat, BackColor = Theme.Panneau, ForeColor = Theme.Accent,
                 TextAlign = ContentAlignment.MiddleLeft, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold)
             };
@@ -780,13 +780,13 @@ namespace SimulateurPliage.Vues
             {
                 p.Controls.Add(new Panel
                 {
-                    Left = 10, Top = y + 6, Width = LargeurPanneau + 10, Height = 1, BackColor = Theme.Separateur
+                    Left = 16, Top = y + 6, Width = LargeurPanneau, Height = 1, BackColor = Theme.Separateur
                 });
                 y += 12;
             }
             p.Controls.Add(new Label
             {
-                Text = t, Left = 10, Top = y + 6, Width = LargeurPanneau,
+                Text = t, Left = 16, Top = y + 6, Width = LargeurPanneau,
                 ForeColor = Theme.Accent, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold)
             });
             return y + 30;
@@ -797,12 +797,12 @@ namespace SimulateurPliage.Vues
         {
             p.Controls.Add(new Panel
             {
-                Left = 10, Top = y + 6, Width = LargeurPanneau + 10, Height = 1, BackColor = Theme.Separateur
+                Left = 16, Top = y + 6, Width = LargeurPanneau, Height = 1, BackColor = Theme.Separateur
             });
             y += 12;
             p.Controls.Add(new Label
             {
-                Text = t, Left = 10, Top = y + 6, Width = 170,
+                Text = t, Left = 16, Top = y + 6, Width = 170,
                 ForeColor = Theme.Accent, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold)
             });
 
@@ -889,10 +889,10 @@ namespace SimulateurPliage.Vues
 
         TextBox Texte(Panel p, string lab, string v, ref int y, Action<string> onChange)
         {
-            p.Controls.Add(new Label { Text = lab, Left = 12, Top = y + 4, Width = 80, ForeColor = Theme.Texte });
+            p.Controls.Add(new Label { Text = lab, Left = 16, Top = y + 4, Width = 80, ForeColor = Theme.Texte });
             var t = new TextBox
             {
-                Left = 96, Top = y, Width = 242, Text = v ?? "",
+                Left = 100, Top = y, Width = 238, Text = v ?? "",
                 BackColor = Theme.Champ, ForeColor = Theme.Texte, BorderStyle = BorderStyle.FixedSingle
             };
             t.TextChanged += (s, e) => { if (!_load) onChange(t.Text); };
@@ -904,7 +904,7 @@ namespace SimulateurPliage.Vues
         NumericUpDown Num(Panel p, string lab, double v, double min, double max,
                           double inc, int dec, ref int y, Action<double> onChange)
         {
-            p.Controls.Add(new Label { Text = lab, Left = 12, Top = y + 4, Width = 170, ForeColor = Theme.Texte });
+            p.Controls.Add(new Label { Text = lab, Left = 16, Top = y + 4, Width = 170, ForeColor = Theme.Texte });
             var n = new NumericUpDown
             {
                 Left = 190, Top = y, Width = 148,
@@ -920,7 +920,7 @@ namespace SimulateurPliage.Vues
 
         void NumMachine(Panel p, string lab, double v, ref int y, Action<double> onChange)
         {
-            p.Controls.Add(new Label { Text = lab, Left = 20, Top = y + 4, Width = 168, ForeColor = Theme.Discret });
+            p.Controls.Add(new Label { Text = lab, Left = 24, Top = y + 4, Width = 164, ForeColor = Theme.Discret });
             var n = new NumericUpDown
             {
                 Left = 190, Top = y, Width = 148, Minimum = 0, Maximum = 5000,
@@ -942,7 +942,7 @@ namespace SimulateurPliage.Vues
 
         ComboBox Combo(Panel p, string lab, string[] items, int sel, ref int y, Action<int> onChange)
         {
-            p.Controls.Add(new Label { Text = lab, Left = 12, Top = y + 4, Width = 170, ForeColor = Theme.Texte });
+            p.Controls.Add(new Label { Text = lab, Left = 16, Top = y + 4, Width = 170, ForeColor = Theme.Texte });
             var c = new ComboBox
             {
                 Left = 190, Top = y, Width = 148, DropDownStyle = ComboBoxStyle.DropDownList,
@@ -960,7 +960,7 @@ namespace SimulateurPliage.Vues
         {
             var g = new DataGridView
             {
-                Left = 12, Top = y, Width = LargeurPanneau + 10, Height = h,
+                Left = 16, Top = y, Width = LargeurPanneau, Height = h,
                 BackgroundColor = Theme.Champ, BorderStyle = BorderStyle.None, GridColor = Theme.Bord,
                 RowHeadersVisible = false, AllowUserToAddRows = false, AllowUserToResizeRows = false,
                 AllowUserToResizeColumns = false, EnableHeadersVisualStyles = false,

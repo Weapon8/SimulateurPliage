@@ -31,7 +31,11 @@ namespace SimulateurPliage.Vues
         public void Outillage(Plieuse pl, Poincon po, Matrice ma, Embase em)
         { plieuse = pl; poincon = po; matrice = ma; embase = em; Invalidate(); }
 
-        PointF T(double x, double y) => new((float)(ox + x * sc), (float)(oy - y * sc));
+        // Sens horizontal de l'affichage : -1 = butée à droite / opérateur à gauche
+        // (miroir gauche/droite). N'affecte QUE le rendu, pas la géométrie du pli.
+        int sensX = -1;
+
+        PointF T(double x, double y) => new((float)(ox + sensX * x * sc), (float)(oy - y * sc));
         PointF T(Pt p) => T(p.X, p.Y);
 
         protected override void OnPaint(PaintEventArgs e)
@@ -83,7 +87,9 @@ namespace SimulateurPliage.Vues
             sc = Math.Min((Width - 2 * m) / dx, (Height - 2 * m) / dy);
             if (sc <= 0 || double.IsInfinity(sc)) return false;
 
-            ox = m - minX * sc + (Width - 2 * m - dx * sc) / 2;
+            // le monde-x qui doit tomber à gauche de l'écran dépend du miroir
+            double gaucheMonde = sensX > 0 ? minX : maxX;
+            ox = m - sensX * gaucheMonde * sc + (Width - 2 * m - dx * sc) / 2;
             oy = Height - m + minY * sc - (Height - 2 * m - dy * sc) / 2;
             return true;
         }
