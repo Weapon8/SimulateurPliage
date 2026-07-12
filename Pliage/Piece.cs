@@ -106,16 +106,15 @@ namespace SimulateurPliage.Pliage
         }
 
         /// <summary>
-        /// Chevetre de reference : aile 20 · joue 60 · fond 100 · joue 60 · aile 20.
-        /// Les plis ALTERNENT : Bas, Haut, Haut, Bas — les joues descendent, le fond
-        /// remonte, les ailes repartent a plat. Encombrement fini 140 x 60 mm.
-        /// (Quatre plis dans le meme sens replieraient la tole sur elle-meme.)
+        /// Chevêtre de référence : aile 20 · joue 60 · fond 100 · joue 60 · aile 20.
+        /// Les QUATRE plis vont vers le HAUT (à la plieuse le flanc se relève toujours
+        /// vers le haut). Aucun pli vers le bas.
         /// </summary>
         public static Piece Demo()
         {
             var p = new Piece { Epaisseur = 1.0 };
             p.Segments.AddRange(new double[] { 20, 60, 100, 60, 20 });
-            var sens = new[] { Sens.Bas, Sens.Haut, Sens.Haut, Sens.Bas };
+            var sens = new[] { Sens.Haut, Sens.Haut, Sens.Haut, Sens.Haut };
             for (int b = 0; b < 4; b++)
                 p.Sequence.Add(new Operation { Bend = b, AngleCible = 90, Sens = sens[b], V = 16 });
             return p;
