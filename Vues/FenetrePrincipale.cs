@@ -11,6 +11,7 @@ namespace SimulateurPliage.Vues
     public class FenetrePrincipale : Form
     {
         Atelier atelier;
+        Bibliotheque biblio;
         Plieuse plieuse;
         Poincon poincon;
         Matrice matrice;
@@ -20,7 +21,17 @@ namespace SimulateurPliage.Vues
         bool _load;
         string _fichier;   // chemin du .plt.json courant ; null = pièce jamais enregistrée
 
-        ComboBox cbMachine, cbPoincon, cbMatrice, cbCotes;
+        // Verrou des réglages machine : verrouillés par défaut, on doit déverrouiller
+        // (🔓) pour éditer, puis Valider pour appliquer et enregistrer dans l'atelier.
+        bool _machVerrouille = true;
+        bool _machModifie;
+        readonly System.Collections.Generic.List<NumericUpDown> _champsMachine = new();
+        Button btnVerrou, btnValiderMachine;
+        Label lblMachModifie;
+
+        ComboBox cbMachine, cbPoincon, cbMatrice, cbCotes, cbProfils;
+        TextBox txtNom, txtChantier;
+        readonly System.Collections.Generic.List<Profil> _profils = new();
         NumericUpDown nNbPlis, nEpaisseur, nHauteurPoincon;
         DataGridView dgPans;
         VueSection vueSection;
@@ -45,6 +56,7 @@ namespace SimulateurPliage.Vues
             AutoScaleMode = AutoScaleMode.Font;
 
             atelier = Atelier.Charger();
+            biblio = Bibliotheque.Charger();
             plieuse = atelier.Plieuses[0];
             poincon = atelier.Poincons[0];
             matrice = atelier.Matrices.Find(m => m.Nom.Contains("2045")) ?? atelier.Matrices[0];
@@ -94,6 +106,29 @@ namespace SimulateurPliage.Vues
             bEnregSous.Left = 12; bEnregSous.Top = y; gauche.Controls.Add(bEnregSous);
             y += 38;
 
+            y = Titre(gauche, "PROFILS", y);
+            txtNom = Texte(gauche, "Nom", piece.Nom, ref y, s => piece.Nom = s);
+            txtChantier = Texte(gauche, "Chantier", piece.Chantier, ref y, s => piece.Chantier = s);
+
+            gauche.Controls.Add(new Label
+            { Text = "Bibliothèque", Left = 12, Top = y + 4, Width = 100, ForeColor = Theme.Discret });
+            cbProfils = new ComboBox
+            {
+                Left = 12, Top = y + 24, Width = 326, DropDownStyle = ComboBoxStyle.DropDownList,
+                BackColor = Theme.Champ, ForeColor = Theme.Texte, FlatStyle = FlatStyle.Flat
+            };
+            gauche.Controls.Add(cbProfils);
+            y += 56;
+
+            var bEnrProfil = Bouton("Enregistrer", 104, EnregistrerProfil);
+            bEnrProfil.Left = 12; bEnrProfil.Top = y; gauche.Controls.Add(bEnrProfil);
+            var bChgProfil = Bouton("Charger", 104, ChargerProfil);
+            bChgProfil.Left = 120; bChgProfil.Top = y; gauche.Controls.Add(bChgProfil);
+            var bSupProfil = Bouton("Supprimer", 104, SupprimerProfil);
+            bSupProfil.Left = 228; bSupProfil.Top = y; gauche.Controls.Add(bSupProfil);
+            y += 38;
+            RafraichirProfils();
+
             y = Titre(gauche, "MACHINE", y);
             cbMachine = Combo(gauche, "Plieuse", Noms(atelier.Plieuses), 0, ref y, i =>
             {
@@ -137,17 +172,22 @@ namespace SimulateurPliage.Vues
             dgPans.Columns.Add(Col("lg", "Longueur", 150, false));
             dgPans.CellEndEdit += (s, e) => { if (!_load) { LirePans(); Recalculer(); } };
 
-            y = Titre(gauche, "MACHINE — cotes", y);
+            y = TitreVerrou(gauche, "MACHINE — cotes", ref y);
             NumMachine(gauche, "Butée mini", plieuse.ButeeMin, ref y, v => plieuse.ButeeMin = v);
             NumMachine(gauche, "Butée maxi", plieuse.ButeeMax, ref y, v => plieuse.ButeeMax = v);
             NumMachine(gauche, "Hauteur libre", plieuse.HauteurLibre, ref y, v => plieuse.HauteurLibre = v);
             NumMachine(gauche, "Tablier déport", plieuse.TablierDeport, ref y, v => plieuse.TablierDeport = v);
+            NumMachine(gauche, "Tonnage maxi (t)", plieuse.TonnageMax, ref y, v => plieuse.TonnageMax = v);
+            NumMachine(gauche, "Doigt : hauteur", plieuse.DoigtHauteur, ref y, v => plieuse.DoigtHauteur = v);
+            NumMachine(gauche, "Doigt : contact", plieuse.DoigtContact, ref y, v => plieuse.DoigtContact = v);
 
             y = Titre(gauche, "EMBASES", y);
             NumMachine(gauche, "Porte-poinçon H", atelier.Embase.PortePoinconH, ref y, v => atelier.Embase.PortePoinconH = v);
             NumMachine(gauche, "Porte-poinçon L", atelier.Embase.PortePoinconLg, ref y, v => atelier.Embase.PortePoinconLg = v);
             NumMachine(gauche, "Semelle H", atelier.Embase.SemelleH, ref y, v => atelier.Embase.SemelleH = v);
             NumMachine(gauche, "Semelle L", atelier.Embase.SemelleLg, ref y, v => atelier.Embase.SemelleLg = v);
+
+            AppliquerVerrouMachine();   // état initial : verrouillé
 
             ConstruireZoneDroite();
         }
@@ -523,6 +563,8 @@ namespace SimulateurPliage.Vues
                 nEpaisseur.Value = (decimal)Math.Max((double)nEpaisseur.Minimum,
                                     Math.Min((double)nEpaisseur.Maximum, piece.Epaisseur));
             if (cbCotes != null) cbCotes.SelectedIndex = piece.CotesExterieures ? 1 : 0;
+            if (txtNom != null) txtNom.Text = piece.Nom ?? "";
+            if (txtChantier != null) txtChantier.Text = piece.Chantier ?? "";
             _load = false;
             ChargerPans();
             if (resoudre) EssayerOrdreAuto(out _, out _); else Recalculer();
@@ -533,6 +575,66 @@ namespace SimulateurPliage.Vues
             Text = string.IsNullOrEmpty(_fichier)
                 ? "Simulateur de pliage — collisions outillage · TolTem"
                 : $"Simulateur de pliage — {System.IO.Path.GetFileName(_fichier)} · TolTem";
+
+        // ---------------------------------------------------- bibliothèque --
+
+        void RafraichirProfils()
+        {
+            if (cbProfils == null) return;
+            _profils.Clear();
+            _profils.AddRange(biblio.Profils);
+            cbProfils.Items.Clear();
+            foreach (var pr in _profils) cbProfils.Items.Add(pr.Libelle);
+            if (cbProfils.Items.Count > 0) cbProfils.SelectedIndex = 0;
+        }
+
+        void EnregistrerProfil()
+        {
+            LirePans();
+            piece.Nom = (txtNom?.Text ?? "").Trim();
+            piece.Chantier = (txtChantier?.Text ?? "").Trim();
+            if (piece.Nom.Length == 0)
+            {
+                MessageBox.Show("Donne un nom au profil avant de l'enregistrer.",
+                    "Profils", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                txtNom?.Focus();
+                return;
+            }
+            biblio.Enregistrer(piece, piece.Nom, piece.Chantier);
+            RafraichirProfils();
+            int i = _profils.FindIndex(x =>
+                string.Equals(x.Nom, piece.Nom, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(x.Chantier ?? "", piece.Chantier, StringComparison.OrdinalIgnoreCase));
+            if (i >= 0) cbProfils.SelectedIndex = i;
+        }
+
+        void ChargerProfil()
+        {
+            int i = cbProfils?.SelectedIndex ?? -1;
+            if (i < 0 || i >= _profils.Count)
+            {
+                MessageBox.Show("Choisis un profil dans la bibliothèque.",
+                    "Profils", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            var p = biblio.Instancier(_profils[i]);
+            if (p == null) return;
+            piece = p;
+            _fichier = null;
+            etape = 0;
+            AppliquerPiece();   // garde l'ordre enregistré du profil
+        }
+
+        void SupprimerProfil()
+        {
+            int i = cbProfils?.SelectedIndex ?? -1;
+            if (i < 0 || i >= _profils.Count) return;
+            var pr = _profils[i];
+            if (MessageBox.Show($"Supprimer le profil « {pr.Libelle} » ?", "Profils",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            biblio.Supprimer(pr);
+            RafraichirProfils();
+        }
 
         void ChargerPans()
         {
@@ -665,6 +767,108 @@ namespace SimulateurPliage.Vues
             return y + 30;
         }
 
+        /// <summary>Titre de section avec cadenas (🔒/🔓), bouton Valider et indicateur « modifié ».</summary>
+        int TitreVerrou(Panel p, string t, ref int y)
+        {
+            p.Controls.Add(new Panel
+            {
+                Left = 10, Top = y + 6, Width = LargeurPanneau + 10, Height = 1, BackColor = Theme.Separateur
+            });
+            y += 12;
+            p.Controls.Add(new Label
+            {
+                Text = t, Left = 10, Top = y + 6, Width = 170,
+                ForeColor = Theme.Accent, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold)
+            });
+
+            lblMachModifie = new Label
+            {
+                Left = 176, Top = y + 8, Width = 64, ForeColor = Theme.Accent,
+                Font = new Font("Segoe UI", 8f, FontStyle.Bold), Text = ""
+            };
+            p.Controls.Add(lblMachModifie);
+
+            btnValiderMachine = new Button
+            {
+                Text = "Valider", Left = 242, Top = y + 2, Width = 60, Height = 24,
+                FlatStyle = FlatStyle.Flat, BackColor = Theme.Bouton, ForeColor = Theme.Texte,
+                Font = new Font("Segoe UI", 8.5f), Visible = false
+            };
+            btnValiderMachine.FlatAppearance.BorderColor = Theme.Bord;
+            btnValiderMachine.Click += (s, e) => ValiderMachine();
+            p.Controls.Add(btnValiderMachine);
+
+            btnVerrou = new Button
+            {
+                Text = "🔒", Left = 306, Top = y + 2, Width = 30, Height = 24,
+                FlatStyle = FlatStyle.Flat, BackColor = Theme.Bouton, ForeColor = Theme.Texte,
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+            btnVerrou.FlatAppearance.BorderColor = Theme.Bord;
+            btnVerrou.Click += (s, e) => BasculerVerrouMachine();
+            var tip = new ToolTip();
+            tip.SetToolTip(btnVerrou, "Verrouiller / déverrouiller les réglages machine");
+            p.Controls.Add(btnVerrou);
+
+            return y + 30;
+        }
+
+        void BasculerVerrouMachine()
+        {
+            // Reverrouiller avec des modifs non validées : on redemande.
+            if (!_machVerrouille && _machModifie)
+            {
+                var r = MessageBox.Show(
+                    "Des réglages machine ont été modifiés sans être validés.\nValider avant de verrouiller ?",
+                    "Réglages machine", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                if (r == DialogResult.Cancel) return;
+                if (r == DialogResult.Yes) { ValiderMachine(); return; }
+                _machModifie = false;   // Non : on verrouille, changements gardés en session mais non enregistrés
+            }
+            _machVerrouille = !_machVerrouille;
+            AppliquerVerrouMachine();
+        }
+
+        void ValiderMachine()
+        {
+            atelier.Sauver();          // persiste les cotes dans atelier.json
+            _machModifie = false;
+            _machVerrouille = true;
+            AppliquerVerrouMachine();
+        }
+
+        /// <summary>Applique l'état du verrou aux champs et met à jour cadenas / Valider / « modifié ».</summary>
+        void AppliquerVerrouMachine()
+        {
+            foreach (var n in _champsMachine)
+            {
+                n.Enabled = !_machVerrouille;
+                n.BackColor = _machVerrouille ? Theme.Panneau : Theme.Champ;
+            }
+            MajEtatVerrou();
+        }
+
+        void MajEtatVerrou()
+        {
+            if (btnVerrou != null) btnVerrou.Text = _machVerrouille ? "🔒" : "🔓";
+            if (btnValiderMachine != null) btnValiderMachine.Visible = !_machVerrouille;
+            if (lblMachModifie != null) lblMachModifie.Text = _machModifie ? "● modifié" : "";
+        }
+
+        TextBox Texte(Panel p, string lab, string v, ref int y, Action<string> onChange)
+        {
+            p.Controls.Add(new Label { Text = lab, Left = 12, Top = y + 4, Width = 80, ForeColor = Theme.Texte });
+            var t = new TextBox
+            {
+                Left = 96, Top = y, Width = 242, Text = v ?? "",
+                BackColor = Theme.Champ, ForeColor = Theme.Texte, BorderStyle = BorderStyle.FixedSingle
+            };
+            t.TextChanged += (s, e) => { if (!_load) onChange(t.Text); };
+            p.Controls.Add(t);
+            y += 30;
+            return t;
+        }
+
         NumericUpDown Num(Panel p, string lab, double v, double min, double max,
                           double inc, int dec, ref int y, Action<double> onChange)
         {
@@ -691,7 +895,15 @@ namespace SimulateurPliage.Vues
                 DecimalPlaces = 1, Increment = 1, Value = (decimal)v,
                 BackColor = Theme.Champ, ForeColor = Theme.Texte, BorderStyle = BorderStyle.FixedSingle
             };
-            n.ValueChanged += (s, e) => { if (!_load) { onChange((double)n.Value); Recalculer(); } };
+            n.ValueChanged += (s, e) =>
+            {
+                if (_load) return;
+                onChange((double)n.Value);   // aperçu live
+                _machModifie = true;
+                MajEtatVerrou();
+                Recalculer();
+            };
+            _champsMachine.Add(n);
             p.Controls.Add(n);
             y += 28;
         }

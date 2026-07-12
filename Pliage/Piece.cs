@@ -28,6 +28,8 @@ namespace SimulateurPliage.Pliage
     /// <summary>La tôle : ses pans, son épaisseur, sa séquence de pliage.</summary>
     public sealed class Piece
     {
+        public string Nom = "";                  // nom du profil (éditable, sauvegardé)
+        public string Chantier = "";             // regroupement optionnel : suite de chantier / paquet
         public double Epaisseur = 1.0;
         public double LongueurPli = 500;
         public double Rm = 450;                  // N/mm² : acier 450, inox 600, alu 250, zinc 150

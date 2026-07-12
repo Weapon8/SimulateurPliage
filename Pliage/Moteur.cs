@@ -70,8 +70,21 @@ namespace SimulateurPliage.Pliage
 
             Ancrer(chaine, sommet, st.Op.ButeeAval);
 
-            for (int i = 0; i <= sommet; i++) st.PanArriere.Add(chaine[i]);
-            for (int i = sommet; i < chaine.Count; i++) st.Formage.Add(chaine[i]);
+            // Convention d'affichage FIXE : butée + pan couché à DROITE, opérateur + formage
+            // à GAUCHE, quelle que soit l'étape. Ancrer met déjà le pan côté butée à droite ;
+            // ici on range PanArriere = pan couché (butée), Formage = côté opérateur, en
+            // partant toujours du sommet vers l'extérieur. Sans ça, un ⇄ inversait l'image
+            // (le formage passait à droite, côté butée).
+            if (!st.Op.ButeeAval)
+            {
+                for (int i = 0; i <= sommet; i++) st.PanArriere.Add(chaine[i]);          // amont couché
+                for (int i = sommet; i < chaine.Count; i++) st.Formage.Add(chaine[i]);   // aval opérateur
+            }
+            else
+            {
+                for (int i = chaine.Count - 1; i >= sommet; i--) st.PanArriere.Add(chaine[i]); // aval couché
+                for (int i = sommet; i >= 0; i--) st.Formage.Add(chaine[i]);                   // amont opérateur, sommet→ext
+            }
 
             // la butee lit le pan couche contre elle : l'amont, ou l'aval si rotation a plat
             int panButee = st.Op.ButeeAval ? st.Op.Bend + 1 : st.Op.Bend;
