@@ -28,6 +28,8 @@ namespace SimulateurPliage.Vues
         readonly System.Collections.Generic.List<NumericUpDown> _champsMachine = new();
         Button btnVerrou, btnValiderMachine;
         Label lblMachModifie;
+        Panel machPanel;          // bloc machine repliable (en bas)
+        Button btnMachHead;       // en-tête ▸/▾ du bloc machine
 
         ComboBox cbMachine, cbPoincon, cbMatrice, cbCotes, cbProfils;
         TextBox txtNom, txtChantier;
@@ -94,42 +96,9 @@ namespace SimulateurPliage.Vues
             racine.Controls.Add(zoneDroite, 1, 0);
 
             int y = 4;
-            y = Titre(gauche, "FICHIER", y, false);
-            var bNouveau = Bouton("Nouveau", 96, NouvellePiece);
-            bNouveau.Left = 12; bNouveau.Top = y; gauche.Controls.Add(bNouveau);
-            var bOuvrir = Bouton("Ouvrir", 96, OuvrirPiece);
-            bOuvrir.Left = 112; bOuvrir.Top = y; gauche.Controls.Add(bOuvrir);
-            var bEnreg = Bouton("Enregistrer", 118, EnregistrerPiece);
-            bEnreg.Left = 212; bEnreg.Top = y; gauche.Controls.Add(bEnreg);
-            y += 34;
-            var bEnregSous = Bouton("Enregistrer sous…", 326, EnregistrerPieceSous);
-            bEnregSous.Left = 12; bEnregSous.Top = y; gauche.Controls.Add(bEnregSous);
-            y += 38;
 
-            y = Titre(gauche, "PROFILS", y);
-            txtNom = Texte(gauche, "Nom", piece.Nom, ref y, s => piece.Nom = s);
-            txtChantier = Texte(gauche, "Chantier", piece.Chantier, ref y, s => piece.Chantier = s);
-
-            gauche.Controls.Add(new Label
-            { Text = "Bibliothèque", Left = 12, Top = y + 4, Width = 100, ForeColor = Theme.Discret });
-            cbProfils = new ComboBox
-            {
-                Left = 12, Top = y + 24, Width = 326, DropDownStyle = ComboBoxStyle.DropDownList,
-                BackColor = Theme.Champ, ForeColor = Theme.Texte, FlatStyle = FlatStyle.Flat
-            };
-            gauche.Controls.Add(cbProfils);
-            y += 56;
-
-            var bEnrProfil = Bouton("Enregistrer", 104, EnregistrerProfil);
-            bEnrProfil.Left = 12; bEnrProfil.Top = y; gauche.Controls.Add(bEnrProfil);
-            var bChgProfil = Bouton("Charger", 104, ChargerProfil);
-            bChgProfil.Left = 120; bChgProfil.Top = y; gauche.Controls.Add(bChgProfil);
-            var bSupProfil = Bouton("Supprimer", 104, SupprimerProfil);
-            bSupProfil.Left = 228; bSupProfil.Top = y; gauche.Controls.Add(bSupProfil);
-            y += 38;
-            RafraichirProfils();
-
-            y = Titre(gauche, "MACHINE", y);
+            // --- EN TÊTE : on choisit la machine et l'outillage AVANT de simuler ---
+            y = Titre(gauche, "MACHINE", y, false);
             cbMachine = Combo(gauche, "Plieuse", Noms(atelier.Plieuses), 0, ref y, i =>
             {
                 plieuse = atelier.Plieuses[i];
@@ -145,12 +114,6 @@ namespace SimulateurPliage.Vues
                 vueSection.Outillage(plieuse, poincon, matrice, atelier.Embase);
                 Recalculer();
             });
-            nHauteurPoincon = Num(gauche, "Hauteur poinçon", poincon.Hauteur, 60, 250, 5, 0, ref y, v =>
-            {
-                poincon.Hauteur = v;
-                vueSection.Outillage(plieuse, poincon, matrice, atelier.Embase);
-                Recalculer();
-            });
             cbMatrice = Combo(gauche, "Matrice", Noms(atelier.Matrices),
                 Math.Max(0, atelier.Matrices.IndexOf(matrice)), ref y, i =>
             {
@@ -159,6 +122,7 @@ namespace SimulateurPliage.Vues
                 Recalculer();
             });
 
+            // --- PIÈCE + PANS ---
             y = Titre(gauche, "PIÈCE", y);
             nNbPlis = Num(gauche, "Nombre de plis", piece.NbPlis, 1, 12, 1, 0, ref y, v => DefinirNbPlis((int)v));
             nEpaisseur = Num(gauche, "Épaisseur (mm)", piece.Epaisseur, 0.4, 5, 0.1, 2, ref y,
@@ -172,20 +136,81 @@ namespace SimulateurPliage.Vues
             dgPans.Columns.Add(Col("lg", "Longueur", 150, false));
             dgPans.CellEndEdit += (s, e) => { if (!_load) { LirePans(); Recalculer(); } };
 
-            y = TitreVerrou(gauche, "MACHINE — cotes", ref y);
-            NumMachine(gauche, "Butée mini", plieuse.ButeeMin, ref y, v => plieuse.ButeeMin = v);
-            NumMachine(gauche, "Butée maxi", plieuse.ButeeMax, ref y, v => plieuse.ButeeMax = v);
-            NumMachine(gauche, "Hauteur libre", plieuse.HauteurLibre, ref y, v => plieuse.HauteurLibre = v);
-            NumMachine(gauche, "Tablier déport", plieuse.TablierDeport, ref y, v => plieuse.TablierDeport = v);
-            NumMachine(gauche, "Tonnage maxi (t)", plieuse.TonnageMax, ref y, v => plieuse.TonnageMax = v);
-            NumMachine(gauche, "Doigt : hauteur", plieuse.DoigtHauteur, ref y, v => plieuse.DoigtHauteur = v);
-            NumMachine(gauche, "Doigt : contact", plieuse.DoigtContact, ref y, v => plieuse.DoigtContact = v);
+            // --- AU MILIEU : fichier + bibliothèque de profils ---
+            y = Titre(gauche, "FICHIER", y);
+            var bNouveau = Bouton("Nouveau", 96, NouvellePiece);
+            bNouveau.Left = 12; bNouveau.Top = y; gauche.Controls.Add(bNouveau);
+            var bOuvrir = Bouton("Ouvrir", 96, OuvrirPiece);
+            bOuvrir.Left = 112; bOuvrir.Top = y; gauche.Controls.Add(bOuvrir);
+            var bEnreg = Bouton("Enregistrer", 118, EnregistrerPiece);
+            bEnreg.Left = 212; bEnreg.Top = y; gauche.Controls.Add(bEnreg);
+            y += 34;
+            var bEnregSous = Bouton("Enregistrer sous…", 326, EnregistrerPieceSous);
+            bEnregSous.Left = 12; bEnregSous.Top = y; gauche.Controls.Add(bEnregSous);
+            y += 38;
 
-            y = Titre(gauche, "EMBASES", y);
-            NumMachine(gauche, "Porte-poinçon H", atelier.Embase.PortePoinconH, ref y, v => atelier.Embase.PortePoinconH = v);
-            NumMachine(gauche, "Porte-poinçon L", atelier.Embase.PortePoinconLg, ref y, v => atelier.Embase.PortePoinconLg = v);
-            NumMachine(gauche, "Semelle H", atelier.Embase.SemelleH, ref y, v => atelier.Embase.SemelleH = v);
-            NumMachine(gauche, "Semelle L", atelier.Embase.SemelleLg, ref y, v => atelier.Embase.SemelleLg = v);
+            y = Titre(gauche, "PROFILS", y);
+            txtNom = Texte(gauche, "Nom", piece.Nom, ref y, s => piece.Nom = s);
+            txtChantier = Texte(gauche, "Chantier", piece.Chantier, ref y, s => piece.Chantier = s);
+            gauche.Controls.Add(new Label
+            { Text = "Bibliothèque", Left = 12, Top = y + 4, Width = 100, ForeColor = Theme.Discret });
+            cbProfils = new ComboBox
+            {
+                Left = 12, Top = y + 24, Width = 326, DropDownStyle = ComboBoxStyle.DropDownList,
+                BackColor = Theme.Champ, ForeColor = Theme.Texte, FlatStyle = FlatStyle.Flat
+            };
+            gauche.Controls.Add(cbProfils);
+            y += 56;
+            var bEnrProfil = Bouton("Enregistrer", 104, EnregistrerProfil);
+            bEnrProfil.Left = 12; bEnrProfil.Top = y; gauche.Controls.Add(bEnrProfil);
+            var bChgProfil = Bouton("Charger", 104, ChargerProfil);
+            bChgProfil.Left = 120; bChgProfil.Top = y; gauche.Controls.Add(bChgProfil);
+            var bSupProfil = Bouton("Supprimer", 104, SupprimerProfil);
+            bSupProfil.Left = 228; bSupProfil.Top = y; gauche.Controls.Add(bSupProfil);
+            y += 38;
+            RafraichirProfils();
+
+            // --- EN BAS : réglages machine détaillés, repliés par défaut ---
+            gauche.Controls.Add(new Panel
+            { Left = 10, Top = y + 6, Width = LargeurPanneau + 10, Height = 1, BackColor = Theme.Separateur });
+            y += 12;
+            btnMachHead = new Button
+            {
+                Text = "▸  RÉGLAGES MACHINE (cotes)", Left = 10, Top = y, Width = 328, Height = 26,
+                FlatStyle = FlatStyle.Flat, BackColor = Theme.Panneau, ForeColor = Theme.Accent,
+                TextAlign = ContentAlignment.MiddleLeft, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold)
+            };
+            btnMachHead.FlatAppearance.BorderSize = 0;
+            btnMachHead.Click += (s, e) => BasculerMachPanel();
+            gauche.Controls.Add(btnMachHead);
+            y += 30;
+
+            machPanel = new Panel { Left = 0, Top = y, Width = 352, Visible = false, BackColor = Theme.Panneau };
+            gauche.Controls.Add(machPanel);
+
+            int my = 0;
+            nHauteurPoincon = Num(machPanel, "Hauteur poinçon", poincon.Hauteur, 60, 250, 5, 0, ref my, v =>
+            {
+                poincon.Hauteur = v;
+                vueSection.Outillage(plieuse, poincon, matrice, atelier.Embase);
+                Recalculer();
+            });
+
+            my = TitreVerrou(machPanel, "MACHINE — cotes", ref my);
+            NumMachine(machPanel, "Butée mini", plieuse.ButeeMin, ref my, v => plieuse.ButeeMin = v);
+            NumMachine(machPanel, "Butée maxi", plieuse.ButeeMax, ref my, v => plieuse.ButeeMax = v);
+            NumMachine(machPanel, "Hauteur libre", plieuse.HauteurLibre, ref my, v => plieuse.HauteurLibre = v);
+            NumMachine(machPanel, "Tablier déport", plieuse.TablierDeport, ref my, v => plieuse.TablierDeport = v);
+            NumMachine(machPanel, "Tonnage maxi (t)", plieuse.TonnageMax, ref my, v => plieuse.TonnageMax = v);
+            NumMachine(machPanel, "Doigt : hauteur", plieuse.DoigtHauteur, ref my, v => plieuse.DoigtHauteur = v);
+            NumMachine(machPanel, "Doigt : contact", plieuse.DoigtContact, ref my, v => plieuse.DoigtContact = v);
+
+            my = Titre(machPanel, "EMBASES", my);
+            NumMachine(machPanel, "Porte-poinçon H", atelier.Embase.PortePoinconH, ref my, v => atelier.Embase.PortePoinconH = v);
+            NumMachine(machPanel, "Porte-poinçon L", atelier.Embase.PortePoinconLg, ref my, v => atelier.Embase.PortePoinconLg = v);
+            NumMachine(machPanel, "Semelle H", atelier.Embase.SemelleH, ref my, v => atelier.Embase.SemelleH = v);
+            NumMachine(machPanel, "Semelle L", atelier.Embase.SemelleLg, ref my, v => atelier.Embase.SemelleLg = v);
+            machPanel.Height = my + 8;
 
             AppliquerVerrouMachine();   // état initial : verrouillé
 
@@ -811,6 +836,13 @@ namespace SimulateurPliage.Vues
             p.Controls.Add(btnVerrou);
 
             return y + 30;
+        }
+
+        void BasculerMachPanel()
+        {
+            if (machPanel == null) return;
+            machPanel.Visible = !machPanel.Visible;
+            btnMachHead.Text = (machPanel.Visible ? "▾  " : "▸  ") + "RÉGLAGES MACHINE (cotes)";
         }
 
         void BasculerVerrouMachine()
