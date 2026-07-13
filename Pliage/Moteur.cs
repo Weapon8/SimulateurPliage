@@ -56,12 +56,15 @@ namespace SimulateurPliage.Pliage
             st.Op = p.Sequence[etape];
             var ang = AnglesA(p, etape, out var sens);
 
-            // Retournement dessus/dessous : la piece repose sur l'autre face, donc tous les
-            // plis deja formes pointent a l'oppose. L'ancrage sur la bissectrice remet
-            // ensuite le pli actif vers le haut — la presse pousse toujours vers le bas.
+            // Retournement dessus/dessous : la piece repose sur l'autre face, donc les plis
+            // DEJA FORMES pointent a l'oppose. Mais le pli ACTIF, lui, se fait toujours vers le
+            // haut (le poincon descend, la matrice tient) : son sens ne s'inverse JAMAIS avec le
+            // retournement. Inverser tout le monde repliait le volet actif dans le meme sens que
+            // le deja-plie -> spirale collee au poincon. On saute donc le pli actif.
             if (st.Op.Retournee)
                 for (int i = 0; i < sens.Length; i++)
-                    sens[i] = sens[i] == Sens.Haut ? Sens.Bas : Sens.Haut;
+                    if (i != st.Op.Bend)
+                        sens[i] = sens[i] == Sens.Haut ? Sens.Bas : Sens.Haut;
 
             var chaine = Chaine(p.Segments, ang, sens);
 
@@ -151,8 +154,9 @@ namespace SimulateurPliage.Pliage
         /// <summary>
         /// Place le sommet actif a l'origine et aligne la BISSECTRICE du pli sur +Y
         /// (l'axe du poincon) : les deux ailes s'ecartent symetriquement autour du bec.
-        /// Le PLUS GRAND developpe de tole part cote OPERATEUR (gauche) ; le petit pan
-        /// gauche contre la butee reste a droite.
+        /// RÈGLE FIGÉE : le pan qu'on gauche CONTRE LA BUTÉE va TOUJOURS à DROITE (côté
+        /// butée), quelle que soit sa taille — sinon la butée ne sert à rien. Le reste
+        /// part à gauche (opérateur).
         ///   ButeeAval = false : on pousse en butee, la butee lit le pan AMONT.
         ///   ButeeAval = true  : la piece est retournee BOUT POUR BOUT (rotation a plat,
         ///                       la face ne change pas), la butee lit le pan AVAL.
@@ -178,23 +182,13 @@ namespace SimulateurPliage.Pliage
                 chaine[i] = new Pt(chaine[i].X * cs - chaine[i].Y * sn,
                                    chaine[i].X * sn + chaine[i].Y * cs);
 
-            // Règle de sens : le PLUS GRAND développé de tôle part côté OPÉRATEUR
-            // (gauche, X < 0) ; le petit pan gauché contre la butée reste à droite.
-            double lAmont = 0, lAval = 0;
-            for (int i = 1; i <= sommet; i++)
-                lAmont += Distance(chaine[i], chaine[i - 1]);
-            for (int i = sommet + 1; i < chaine.Count; i++)
-                lAval += Distance(chaine[i], chaine[i - 1]);
-            int bout = lAval >= lAmont ? chaine.Count - 1 : 0;   // extrémité du grand développé
-            if (chaine[bout].X > 0)
+            // Règle de sens : le pan gauché CONTRE LA BUTÉE part à DROITE (X > 0),
+            // quelle que soit sa taille ; tout le reste part à gauche (opérateur).
+            // Butée = pan amont (direct) ou aval (⇄ retourné à plat).
+            int refPan = buteeAval && sommet + 1 < chaine.Count ? sommet + 1 : sommet - 1;
+            if (chaine[refPan].X < 0)
                 for (int i = 0; i < chaine.Count; i++)
                     chaine[i] = new Pt(-chaine[i].X, chaine[i].Y);
-        }
-
-        static double Distance(Pt a, Pt b)
-        {
-            double dx = a.X - b.X, dy = a.Y - b.Y;
-            return Math.Sqrt(dx * dx + dy * dy);
         }
 
         static Pt Unitaire(Pt p)
