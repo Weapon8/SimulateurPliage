@@ -106,17 +106,48 @@ namespace SimulateurPliage.Pliage
         }
 
         /// <summary>
-        /// Chevêtre de référence : aile 20 · joue 60 · fond 100 · joue 60 · aile 20.
-        /// Les QUATRE plis vont vers le HAUT (à la plieuse le flanc se relève toujours
-        /// vers le haut). Aucun pli vers le bas.
+        /// Chevêtre de référence : aile 20 · joue 40 · fond 100 · joue 40 · aile 20.
+        /// Séquence opérateur réelle, dans l'ordre d'exécution :
+        ///   1) pli 1 (bend 0) direct           → butée 20
+        ///   2) pli 4 (bend 3) ⇄ retourné à plat → butée 20
+        ///   3) pli 2 (bend 1) direct           → butée 40
+        ///   4) pli 3 (bend 2) direct           → butée 100 (se cale sur le 40, lit le fond)
+        /// Les 4 plis vont vers le HAUT, tous à 90°.
         /// </summary>
         public static Piece Demo()
         {
             var p = new Piece { Epaisseur = 1.0 };
-            p.Segments.AddRange(new double[] { 20, 60, 100, 60, 20 });
-            var sens = new[] { Sens.Haut, Sens.Haut, Sens.Haut, Sens.Haut };
-            for (int b = 0; b < 4; b++)
-                p.Sequence.Add(new Operation { Bend = b, AngleCible = 90, Sens = sens[b], V = 16 });
+            p.Segments.AddRange(new double[] { 20, 40, 100, 40, 20 });
+            p.Sequence.Add(new Operation { Bend = 0, AngleCible = 90, Sens = Sens.Haut, V = 16 });
+            p.Sequence.Add(new Operation { Bend = 3, AngleCible = 90, Sens = Sens.Haut, V = 16, ButeeAval = true });
+            p.Sequence.Add(new Operation { Bend = 1, AngleCible = 90, Sens = Sens.Haut, V = 16 });
+            p.Sequence.Add(new Operation { Bend = 2, AngleCible = 90, Sens = Sens.Haut, V = 16 });
+            return p;
+        }
+
+        /// <summary>
+        /// Z laqué de référence : dos 30 · assise 25 · façade 25 · retour 10.
+        /// Développé S1=30 · S2=25 · S3=25 · S4=10 (bends 0/1/2).
+        /// La face de référence est la FNL (non laquée), gardée dessus : le laquage
+        /// reste protégé dessous pendant les 2 premiers plis, puis on retourne.
+        /// Séquence opérateur réelle, dans l'ordre d'exécution — TOUS les volets montent :
+        ///   1) pli du 10 (bend 2) à 45°  — FNL dessus
+        ///   2) pli du 25 (bend 1) à 92°  — FNL dessus, appui sur le retour du 10 déjà relevé
+        ///   3) ⇅ dessus/dessous, puis pli du 30 (bend 0) à 90° en butée AMONT
+        ///      → la face laquée passe dessus (côté montre), la façade descend du bon côté.
+        /// Le ⇅ (Retournee) inverse le sens des plis déjà faits : c'est lui qui met le 30
+        /// à l'opposé du 25 façade. Butée amont (et non aval) : le déjà-plié tombe côté
+        /// opérateur et dégage le doigt de butée — sens d'engagement confirmé par le solveur.
+        /// NB : l'appui « contre le retour du 10 » n'est pas encore un mode de butée à part —
+        /// la cote R affichée reste le modèle 1 pan (à raffiner avec l'appui-sur-pli-formé).
+        /// </summary>
+        public static Piece DemoZLaque()
+        {
+            var p = new Piece { Epaisseur = 1.0, Nom = "Z laqué 30·25·25·10" };
+            p.Segments.AddRange(new double[] { 30, 25, 25, 10 });
+            p.Sequence.Add(new Operation { Bend = 2, AngleCible = 45, Sens = Sens.Haut, V = 16 });
+            p.Sequence.Add(new Operation { Bend = 1, AngleCible = 92, Sens = Sens.Haut, V = 16 });
+            p.Sequence.Add(new Operation { Bend = 0, AngleCible = 90, Sens = Sens.Haut, V = 16, Retournee = true });
             return p;
         }
     }

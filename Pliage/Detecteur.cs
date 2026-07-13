@@ -90,27 +90,41 @@ namespace SimulateurPliage.Pliage
             return res;
         }
 
-        /// <summary>Segments à tester : tout le pan arrière, et le formage sans son montant droit initial.</summary>
+        /// <summary>
+        /// Segments à tester = les RETOURS DÉJÀ PLIÉS, uniquement. De chaque côté du sommet
+        /// actif on saute la partie rectiligne du bras en cours de formage : elle épouse la
+        /// pointe, ce n'est jamais une collision. Un « retour » n'existe qu'AU-DELÀ du premier
+        /// coude. Conséquence directe : au tout premier pli il n'y a aucun coude antérieur,
+        /// donc aucun segment testé — rien ne peut « taper le poinçon », ce qui est la réalité
+        /// (un bec à 35° laisse le champ libre à un pli de 45°).
+        /// </summary>
         static List<(Pt, Pt)> Segments(EtatEtape st)
         {
             var segs = new List<(Pt, Pt)>();
-
-            for (int i = 0; i + 1 < st.PanArriere.Count; i++)
-                segs.Add((st.PanArriere[i], st.PanArriere[i + 1]));
-
-            if (st.Formage.Count >= 2)
-            {
-                Pt d0 = Unitaire(st.Formage[1].X - st.Formage[0].X, st.Formage[1].Y - st.Formage[0].Y);
-                bool montant = true;
-                for (int i = 0; i + 1 < st.Formage.Count; i++)
-                {
-                    Pt d = Unitaire(st.Formage[i + 1].X - st.Formage[i].X, st.Formage[i + 1].Y - st.Formage[i].Y);
-                    if (montant && d.X * d0.X + d.Y * d0.Y > 0.985) continue;
-                    montant = false;
-                    segs.Add((st.Formage[i], st.Formage[i + 1]));
-                }
-            }
+            ApresMontant(segs, st.PanArriere, sommetEnFin: true);   // pan couché : sommet = dernier point
+            ApresMontant(segs, st.Formage,    sommetEnFin: false);  // formage    : sommet = premier point
             return segs;
+        }
+
+        /// <summary>Ajoute les segments d'un pan en partant DU SOMMET vers l'extérieur, en
+        /// sautant le montant rectiligne initial (le bras droit, non plié, du pli actif).</summary>
+        static void ApresMontant(List<(Pt, Pt)> segs, List<Pt> pan, bool sommetEnFin)
+        {
+            int n = pan.Count;
+            if (n < 2) return;
+            var ordre = new int[n];
+            for (int k = 0; k < n; k++) ordre[k] = sommetEnFin ? n - 1 - k : k;
+
+            Pt d0 = Unitaire(pan[ordre[1]].X - pan[ordre[0]].X, pan[ordre[1]].Y - pan[ordre[0]].Y);
+            bool montant = true;
+            for (int k = 0; k + 1 < n; k++)
+            {
+                int a = ordre[k], b = ordre[k + 1];
+                Pt d = Unitaire(pan[b].X - pan[a].X, pan[b].Y - pan[a].Y);
+                if (montant && d.X * d0.X + d.Y * d0.Y > 0.985) continue;   // encore le bras droit
+                montant = false;
+                segs.Add((pan[a], pan[b]));
+            }
         }
 
         static bool ReplieSurElleMeme(EtatEtape st)
@@ -179,8 +193,9 @@ namespace SimulateurPliage.Pliage
         {
             double d1 = Cross(p3, p4, p1), d2 = Cross(p3, p4, p2);
             double d3 = Cross(p1, p2, p3), d4 = Cross(p1, p2, p4);
-            return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0))
-                && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+            const double e = 1e-7;   // colinéaire / tangent -> PAS un croisement (évite un faux « repli »)
+            return ((d1 > e && d2 < -e) || (d1 < -e && d2 > e))
+                && ((d3 > e && d4 < -e) || (d3 < -e && d4 > e));
         }
 
         static double Cross(Pt a, Pt b, Pt c) => (b.X - a.X) * (c.Y - a.Y) - (b.Y - a.Y) * (c.X - a.X);

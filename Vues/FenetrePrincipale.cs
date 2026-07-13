@@ -15,7 +15,7 @@ namespace SimulateurPliage.Vues
         Plieuse plieuse;
         Poincon poincon;
         Matrice matrice;
-        Piece piece = Piece.Demo();
+        Piece piece = Piece.DemoZLaque();   // démo active : Z laqué (chevêtre = Piece.Demo())
 
         int etape;
         bool _load;
@@ -36,6 +36,7 @@ namespace SimulateurPliage.Vues
         readonly System.Collections.Generic.List<Profil> _profils = new();
         NumericUpDown nNbPlis, nEpaisseur, nHauteurPoincon;
         DataGridView dgPans;
+        readonly System.Collections.Generic.HashSet<int> _pansSurl = new();  // pans bordant le pli sélectionné
         VueSection vueSection;
         VueDeveloppe vueDeveloppe;
         VuePupitre vuePupitre;
@@ -65,8 +66,7 @@ namespace SimulateurPliage.Vues
 
             Construire();
             ChargerPans();
-            EssayerOrdreAuto(out _, out _);   // ouvre déjà en ordre confort (⇄), pas cru
-            Recalculer();
+            Recalculer();   // on garde l'ordre de la démo (séquence opérateur figée)
         }
 
         // ------------------------------------------------ construction --
@@ -135,6 +135,25 @@ namespace SimulateurPliage.Vues
             dgPans.Columns.Add(Col("pan", "Pan", 56, true));
             dgPans.Columns.Add(Col("lg", "Longueur", 150, false));
             dgPans.CellEndEdit += (s, e) => { if (!_load) { LirePans(); Recalculer(); } };
+
+            // --- SYNCHRO PANS ↔ PUPITRE ---
+            // coloriage : les pans qui bordent le pli sélectionné dans le pupitre
+            dgPans.CellFormatting += (s, e) =>
+            {
+                if (e.RowIndex < 0) return;
+                bool sur = _pansSurl.Contains(e.RowIndex);
+                e.CellStyle.BackColor = sur ? Color.FromArgb(30, 52, 74) : Theme.Champ;
+                e.CellStyle.SelectionBackColor = sur ? Color.FromArgb(38, 62, 86) : Color.FromArgb(48, 56, 68);
+                e.CellStyle.ForeColor = sur ? Color.White : Theme.Texte;
+            };
+            // clic sur un pan -> surligne les 2 plis qui le bordent (pli p-1 et pli p)
+            dgPans.SelectionChanged += (s, e) =>
+            {
+                if (_load || vuePupitre == null) return;
+                int p = dgPans.CurrentCell?.RowIndex ?? -1;
+                if (p < 0) { vuePupitre.SurlignerPlis(); return; }
+                vuePupitre.SurlignerPlis(p - 1, p);
+            };
 
             // --- AU MILIEU : fichier + bibliothèque de profils ---
             y = Titre(gauche, "FICHIER", y);
@@ -518,10 +537,10 @@ namespace SimulateurPliage.Vues
 
         void NouvellePiece()
         {
-            piece = Piece.Demo();
+            piece = Piece.DemoZLaque();      // chevêtre = Piece.Demo()
             _fichier = null;
             etape = 0;
-            AppliquerPiece(resoudre: true);
+            AppliquerPiece(resoudre: false);   // on garde la séquence figée de la démo
         }
 
         void OuvrirPiece()
@@ -691,6 +710,21 @@ namespace SimulateurPliage.Vues
             _load = false;
             Redessiner();
             vuePupitre.ChangerEtape(etape);
+            SurlignerPansDuPli(etape);
+        }
+
+        // Surligne dans PANS les 2 pans qui bordent le pli de l'étape donnée
+        // (pli b = entre pan b et pan b+1).
+        void SurlignerPansDuPli(int etapeIdx)
+        {
+            _pansSurl.Clear();
+            if (etapeIdx >= 0 && etapeIdx < piece.Sequence.Count)
+            {
+                int b = piece.Sequence[etapeIdx].Bend;
+                _pansSurl.Add(b);
+                _pansSurl.Add(b + 1);
+            }
+            dgPans?.Invalidate();
         }
 
         void Recalculer()
@@ -705,6 +739,7 @@ namespace SimulateurPliage.Vues
             ListerSequence();
             Redessiner();
             vuePupitre.Afficher(piece, etape, plieuse, poincon, matrice, atelier.Embase);
+            SurlignerPansDuPli(etape);
         }
 
         void Redessiner()

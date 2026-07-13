@@ -91,12 +91,12 @@ namespace SimulateurPliage.Pliage
             st.ButeeDistance = p.ButeeInt(Math.Min(panButee, p.Segments.Count - 1));
             st.Collisions = Detecteur.Analyser(st, p, plieuse, poincon, matrice, embase);
 
-            // Regle d'or de la butee : on doit TOUJOURS etre a plat face a la butee.
-            // En position de pose (pli actif encore a plat), le pan de reference ne doit
-            // jamais descendre sous la face matrice : sinon il ne peut pas se coucher sur
-            // le tablier pour venir contre le doigt. Une reprise re-frappe sans repositionner.
-            if (!st.Op.Reprise && !ButeeAPlat(p, etape, out string raison))
-                st.Collisions.Add(new Collision("butée à plat", raison, true));
+            // NB : en position de pose, le pli actif est encore à plat (180°). La tôle
+            // pose donc TOUJOURS à plat sur la matrice, les retours déjà formés se
+            // présentent en l'air (le 40 bute contre le retour du 20, le 100 contre celui
+            // du 40). Il n'y a pas de « plongeon sous la matrice » à détecter ici : c'est
+            // au solveur d'ordre auto de juger la faisabilité d'un enchaînement, pas à un
+            // faux blocage sur une séquence saisie à la main.
 
             return st;
         }
@@ -151,7 +151,8 @@ namespace SimulateurPliage.Pliage
         /// <summary>
         /// Place le sommet actif a l'origine et aligne la BISSECTRICE du pli sur +Y
         /// (l'axe du poincon) : les deux ailes s'ecartent symetriquement autour du bec.
-        /// Le pan qui va contre la butee est couche a DROITE.
+        /// Le PLUS GRAND developpe de tole part cote OPERATEUR (gauche) ; le petit pan
+        /// gauche contre la butee reste a droite.
         ///   ButeeAval = false : on pousse en butee, la butee lit le pan AMONT.
         ///   ButeeAval = true  : la piece est retournee BOUT POUR BOUT (rotation a plat,
         ///                       la face ne change pas), la butee lit le pan AVAL.
@@ -177,10 +178,23 @@ namespace SimulateurPliage.Pliage
                 chaine[i] = new Pt(chaine[i].X * cs - chaine[i].Y * sn,
                                    chaine[i].X * sn + chaine[i].Y * cs);
 
-            int refPan = buteeAval && sommet + 1 < chaine.Count ? sommet + 1 : sommet - 1;
-            if (chaine[refPan].X < 0)
+            // Règle de sens : le PLUS GRAND développé de tôle part côté OPÉRATEUR
+            // (gauche, X < 0) ; le petit pan gauché contre la butée reste à droite.
+            double lAmont = 0, lAval = 0;
+            for (int i = 1; i <= sommet; i++)
+                lAmont += Distance(chaine[i], chaine[i - 1]);
+            for (int i = sommet + 1; i < chaine.Count; i++)
+                lAval += Distance(chaine[i], chaine[i - 1]);
+            int bout = lAval >= lAmont ? chaine.Count - 1 : 0;   // extrémité du grand développé
+            if (chaine[bout].X > 0)
                 for (int i = 0; i < chaine.Count; i++)
                     chaine[i] = new Pt(-chaine[i].X, chaine[i].Y);
+        }
+
+        static double Distance(Pt a, Pt b)
+        {
+            double dx = a.X - b.X, dy = a.Y - b.Y;
+            return Math.Sqrt(dx * dx + dy * dy);
         }
 
         static Pt Unitaire(Pt p)

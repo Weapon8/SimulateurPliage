@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Globalization;
 using System.Windows.Forms;
 using SimulateurPliage.Materiel;
@@ -37,6 +38,7 @@ namespace SimulateurPliage.Vues
         Embase embase;
         bool _load;
         bool[] hits = new bool[0];   // collision par operation, recalcule a chaque etape
+        int[] surBends = new int[0]; // plis (index geometrique) a surligner = ceux bordant le pan sélectionné
 
         DataGridView dg;
         Label lblTitle, lblFoot;
@@ -45,6 +47,7 @@ namespace SimulateurPliage.Vues
         static readonly Color CRow   = Color.FromArgb(22, 27, 34);
         static readonly Color CCurBg = Color.FromArgb(40, 30, 12);
         static readonly Color CSelBg = Color.FromArgb(34, 42, 52);
+        static readonly Color CSurBg = Color.FromArgb(30, 52, 74);   // pli bordant le pan sélectionné
         static readonly Color CFinBg = Color.FromArgb(18, 22, 28);
         static readonly Color CHead  = Color.FromArgb(140, 150, 162);
         static readonly Color CGreen = Color.FromArgb(80, 230, 120);
@@ -54,6 +57,9 @@ namespace SimulateurPliage.Vues
         static readonly Color CBtn   = Color.FromArgb(43, 49, 59);
         static readonly Color CTxt   = Color.FromArgb(230, 235, 240);
         static readonly Color CFin   = Color.FromArgb(120, 130, 145);
+        static readonly Color CBlue  = Color.FromArgb(111, 208, 255);  // ⇄ à plat
+        static readonly Color CAmber = Color.FromArgb(255, 184, 77);   // ⇅ dessus/dessous
+        static readonly Color CDim   = Color.FromArgb(66, 74, 84);     // sigle éteint
 
         public int CurrentRow => dg?.CurrentCell?.RowIndex ?? -1;
 
@@ -185,15 +191,42 @@ namespace SimulateurPliage.Vues
 
                 bool hit = e.RowIndex < hits.Length && hits[e.RowIndex];
                 bool act = e.RowIndex == cur;
-                Color bg = act ? CCurBg : CRow;
+                bool sur = EstBordant(e.RowIndex);
+                Color bg = act ? CCurBg : (sur ? CSurBg : CRow);
                 Color fg = dg.Columns[e.ColumnIndex].Name == "del"
                     ? CRed
-                    : (hit ? CRed : (act ? COrange : CGreen));
+                    : (hit ? CRed : (act ? COrange : (sur ? CTxt : CGreen)));
 
                 e.CellStyle.ForeColor = fg;
                 e.CellStyle.SelectionForeColor = fg;
                 e.CellStyle.BackColor = bg;
-                e.CellStyle.SelectionBackColor = act ? CCurBg : CSelBg;
+                e.CellStyle.SelectionBackColor = act ? CCurBg : (sur ? CSurBg : CSelBg);
+            };
+
+            // ---- SIGLES ⇄ / ⇅ : on redessine les cases inv/ret en flèches ----
+            // Les cellules restent des cases à cocher (le clic bascule la valeur sur
+            // toute la cellule) ; on remplace juste le visuel. Éteint = gris discret,
+            // coché = couleur vive. On repeint fond + bordure via e.Paint puis le sigle.
+            dg.CellPainting += (s, e) =>
+            {
+                if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
+                string col = dg.Columns[e.ColumnIndex].Name;
+                if (col != "inv" && col != "ret") return;
+
+                e.Paint(e.CellBounds, DataGridViewPaintParts.Background
+                                    | DataGridViewPaintParts.SelectionBackground
+                                    | DataGridViewPaintParts.Border);
+
+                // ligne "fin" : pas d'opération -> pas de sigle
+                if (piece != null && e.RowIndex < piece.Sequence.Count)
+                {
+                    bool on = dg.Rows[e.RowIndex].Cells[e.ColumnIndex].Value is bool b && b;
+                    bool horiz = col == "inv";
+                    Color c = on ? (horiz ? CBlue : CAmber) : CDim;
+                    DessinerSigle(e.Graphics, e.CellBounds, horiz, c);
+                }
+
+                e.Handled = true;
             };
 
             Controls.Add(dg);
@@ -235,6 +268,23 @@ namespace SimulateurPliage.Vues
             b.FlatAppearance.BorderColor = CGrey;
             b.Click += (s, e) => onClick();
             return b;
+        }
+
+        // Surligne les plis (opérations) dont le pli géométrique est l'un de ceux passés
+        // — appelé quand l'opérateur clique un pan pour montrer les 2 plis qui le bordent.
+        public void SurlignerPlis(params int[] plisGeo)
+        {
+            surBends = plisGeo ?? new int[0];
+            dg?.Invalidate();
+        }
+
+        bool EstBordant(int row)
+        {
+            if (piece == null || surBends.Length == 0 ||
+                row < 0 || row >= piece.Sequence.Count) return false;
+            int b = piece.Sequence[row].Bend;
+            foreach (int x in surBends) if (x == b) return true;
+            return false;
         }
 
         // place le curseur sur une ligne sans ouvrir d'editeur
@@ -393,6 +443,44 @@ namespace SimulateurPliage.Vues
             if (o == null) return def;
             string t = o.ToString().Trim().Replace(',', '.').Replace("\u00b0", "").Replace("P", "").Replace("p", "");
             return double.TryParse(t, NumberStyles.Any, CultureInfo.InvariantCulture, out var v) ? v : def;
+        }
+
+        // Dessine ⇄ (2 flèches horizontales) ou ⇅ (2 flèches verticales inversées),
+        // centré dans la cellule. Tracé au trait -> net, sans dépendre d'une police.
+        static void DessinerSigle(Graphics g, Rectangle cell, bool horizontal, Color col)
+        {
+            var sm = g.SmoothingMode;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            using (var p = new Pen(col, 2f) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+            {
+                float cx = cell.X + cell.Width / 2f;
+                float cy = cell.Y + cell.Height / 2f;
+                const float h = 9f, o = 4f;   // demi-longueur, écart entre les 2 flèches
+                if (horizontal)               // ⇄ : haut vers la droite, bas vers la gauche
+                {
+                    Fleche(g, p, cx - h, cy - o, cx + h, cy - o);
+                    Fleche(g, p, cx + h, cy + o, cx - h, cy + o);
+                }
+                else                          // ⇅ : gauche vers le haut, droite vers le bas
+                {
+                    Fleche(g, p, cx - o, cy + h, cx - o, cy - h);
+                    Fleche(g, p, cx + o, cy - h, cx + o, cy + h);
+                }
+            }
+            g.SmoothingMode = sm;
+        }
+
+        // segment + pointe de flèche à l'extrémité (x2,y2)
+        static void Fleche(Graphics g, Pen p, float x1, float y1, float x2, float y2)
+        {
+            g.DrawLine(p, x1, y1, x2, y2);
+            double a = Math.Atan2(y2 - y1, x2 - x1);
+            const float L = 4.5f;
+            for (int k = -1; k <= 1; k += 2)
+            {
+                double b = a + Math.PI + k * (Math.PI / 6);   // ±30°
+                g.DrawLine(p, x2, y2, x2 + (float)(L * Math.Cos(b)), y2 + (float)(L * Math.Sin(b)));
+            }
         }
     }
 }
