@@ -1,0 +1,200 @@
+using System;
+using System.Collections.Generic;
+using System.Text;
+using SimulateurPliage.Materiel;
+
+namespace SimulateurPliage.Pliage
+{
+    /// <summary>Une séquence de pliage faisable trouvée par le solveur.</summary>
+    public sealed class SolutionPliage
+    {
+        public List<Operation> Sequence = new();
+        public int Retournes;         // nombre de retournements dessus/dessous
+        public int ChangementsSens;   // nombre de bascules du sens d'engagement (amont <-> aval)
+        public string Resume = "";
+    }
+
+    /// <summary>
+    /// Solveur d'ordre de pliage — recherche EXHAUSTIVE + simulation.
+    ///
+    /// Principe : on essaie toutes les combinaisons (ordre des plis × sens d'engagement
+    /// amont/aval × retournements) et on garde celles qui ne déclenchent AUCUNE collision
+    /// bloquante. Le solveur ne recalcule PAS la géométrie : pour chaque candidat il appelle
+    /// Moteur.Construire + Detecteur.Analyser — exactement ce que la vue section dessine déjà.
+    /// Donc zéro divergence avec l'écran : c'est la vraie géométrie de l'appli, pas un banc.
+    ///
+    /// FORME CIBLE = la FACE de chaque pli. Face 0 = face de référence (celle du 1er pli) ;
+    /// face 1 = face opposée. Deux plis de même face se plient sans retourner ; changer de face
+    /// impose un retournement dessus/dessous. C'est la règle du plieur : sur le Z, le 10 et le
+    /// 25 sont face NL (0), le 30 est face FL (1) → un seul retournement, imposé entre les deux.
+    ///
+    /// RÈGLES DE CALAGE (métier, réglables en tête de classe) : flan mini pour former, pan mini
+    /// qui porte un retour déjà plié, cote butée mini.
+    /// </summary>
+    public static class Solveur
+    {
+        // --- règles de calage (cotes atelier, à ajuster) ---
+        public const double RetourAdjMini = 25.0;   // un pan qui PORTE un retour déjà plié : 25 mm mini
+        public const double MargeEpaule   = 0.0;    // marge en plus de V/2 pour qu'un flan se forme
+
+        /// <summary>
+        /// Résout l'ordre de pliage. Retourne les séquences faisables, classées : moins de
+        /// retournements d'abord, puis moins de bascules de sens d'engagement.
+        /// </summary>
+        /// <param name="segments">pans du développé (NbPlis + 1)</param>
+        /// <param name="faceParPli">face de chaque pli (0 = référence, 1 = opposée), indexée par n° de ligne</param>
+        /// <param name="anglesParPli">angle intérieur cible de chaque pli</param>
+        /// <param name="vParPli">ouverture matrice de chaque pli (peut être null → 16)</param>
+        public static List<SolutionPliage> Resoudre(
+            List<double> segments, int[] faceParPli, double[] anglesParPli, double[] vParPli,
+            Plieuse plieuse, Poincon poincon, Matrice matrice, Embase embase,
+            double epaisseur = 1.0, double buteeMini = 10.2, int maxRetournes = 3, int maxSolutions = 30)
+        {
+            int n = Math.Min(faceParPli.Length, Math.Max(0, segments.Count - 1));
+            var brutes = new List<SolutionPliage>();
+            var faits = new bool[n];
+            var seq = new List<(int bend, int face, bool aval)>();
+            int gardeFou = 0;
+
+            void Dfs(int nbFaits, int parite, int retournes)
+            {
+                if (++gardeFou > 200000) return;                 // sécurité anti-explosion
+                if (nbFaits == n) { brutes.Add(Materialiser(seq, anglesParPli, vParPli, retournes)); return; }
+
+                for (int k = 0; k < n; k++)
+                {
+                    if (faits[k] || faceParPli[k] != parite) continue;
+                    for (int f = 0; f < 2; f++)
+                    {
+                        bool aval = f == 1;
+                        double vOuv = VDe(matrice, vParPli, k);
+                        if (!CalageOk(segments, faits, k, aval, vOuv, buteeMini)) continue;
+
+                        var test = SousPiece(segments, epaisseur, seq, k, parite, aval, anglesParPli, vParPli);
+                        var etat = Moteur.Construire(test, test.Sequence.Count - 1, plieuse, poincon, matrice, embase);
+                        if (etat.Bloque) continue;               // collision bloquante → branche morte
+
+                        faits[k] = true;
+                        seq.Add((k, parite, aval));
+                        Dfs(nbFaits + 1, parite, retournes);
+                        seq.RemoveAt(seq.Count - 1);
+                        faits[k] = false;
+                    }
+                }
+
+                if (retournes < maxRetournes)
+                {
+                    bool resteAutre = false;
+                    for (int k = 0; k < n; k++) if (!faits[k] && faceParPli[k] != parite) { resteAutre = true; break; }
+                    if (resteAutre) Dfs(nbFaits, 1 - parite, retournes + 1);
+                }
+            }
+
+            Dfs(0, 0, 0);                                        // départ face de référence
+            Array.Clear(faits, 0, n); seq.Clear();
+            Dfs(0, 1, 0);                                        // départ face opposée (pose du flan libre)
+
+            // dédoublonnage + tri
+            var vues = new HashSet<string>();
+            var uniq = new List<SolutionPliage>();
+            foreach (var s in brutes) if (vues.Add(Cle(s))) uniq.Add(s);
+
+            uniq.Sort((a, b) =>
+            {
+                int c = a.Retournes.CompareTo(b.Retournes);
+                if (c != 0) return c;
+                c = a.ChangementsSens.CompareTo(b.ChangementsSens);
+                if (c != 0) return c;
+                return a.Sequence.Count.CompareTo(b.Sequence.Count);
+            });
+            if (uniq.Count > maxSolutions) uniq.RemoveRange(maxSolutions, uniq.Count - maxSolutions);
+            return uniq;
+        }
+
+        /// <summary>Règles de calage métier : flan mini pour former, pan porteur de retour, butée mini.</summary>
+        static bool CalageOk(List<double> segs, bool[] faits, int k, bool aval, double vOuv, double buteeMini)
+        {
+            int n = segs.Count - 1;
+            double amont = segs[k], avalPan = segs[k + 1];
+            double epaule = vOuv / 2.0 + MargeEpaule;
+
+            // 1. former : les deux pans au pli doivent couvrir l'épaule du vé
+            if (amont < epaule || avalPan < epaule) return false;
+
+            // 2. un pan qui porte un retour DÉJÀ plié (pli voisin fait) doit faire 25 mini
+            if (k + 1 < n && faits[k + 1] && avalPan < RetourAdjMini) return false;
+            if (k - 1 >= 0 && faits[k - 1] && amont < RetourAdjMini) return false;
+
+            // 3. caler en butée : le pan lu (amont, ou aval si bout pour bout) >= butée mini
+            double lu = aval ? avalPan : amont;
+            if (lu < buteeMini) return false;
+
+            return true;
+        }
+
+        static double VDe(Matrice m, double[] vs, int k)
+        {
+            double v = (vs != null && k < vs.Length && vs[k] > 0) ? vs[k] : 16;
+            return m?.VProche(v)?.V ?? v;
+        }
+
+        static Piece SousPiece(List<double> segments, double ep,
+            List<(int bend, int face, bool aval)> seq, int kAjout, int pariteAjout, bool avalAjout,
+            double[] angles, double[] vs)
+        {
+            var p = new Piece { Epaisseur = ep };
+            p.Segments.AddRange(segments);
+            foreach (var (bend, face, aval) in seq) AjouterOp(p, bend, face, aval, angles, vs);
+            AjouterOp(p, kAjout, pariteAjout, avalAjout, angles, vs);
+            return p;
+        }
+
+        static void AjouterOp(Piece p, int bend, int face, bool aval, double[] angles, double[] vs)
+        {
+            p.Sequence.Add(new Operation
+            {
+                Bend = bend,
+                AngleCible = (angles != null && bend < angles.Length) ? angles[bend] : 90,
+                Sens = Sens.Haut,                       // sur plieuse le pli actif va TOUJOURS vers le haut
+                V = (vs != null && bend < vs.Length && vs[bend] > 0) ? vs[bend] : 16,
+                ButeeAval = aval,
+                Retournee = face == 1                   // face opposée => pièce retournée à cette étape
+            });
+        }
+
+        static SolutionPliage Materialiser(List<(int bend, int face, bool aval)> seq,
+            double[] angles, double[] vs, int retournes)
+        {
+            var sol = new SolutionPliage { Retournes = retournes };
+            var parts = new List<string>();
+            bool? dernierAval = null; int chg = 0;
+            foreach (var (bend, face, aval) in seq)
+            {
+                var op = new Operation
+                {
+                    Bend = bend,
+                    AngleCible = (angles != null && bend < angles.Length) ? angles[bend] : 90,
+                    Sens = Sens.Haut,
+                    V = (vs != null && bend < vs.Length && vs[bend] > 0) ? vs[bend] : 16,
+                    ButeeAval = aval,
+                    Retournee = face == 1
+                };
+                sol.Sequence.Add(op);
+                if (dernierAval.HasValue && dernierAval.Value != aval) chg++;
+                dernierAval = aval;
+                parts.Add($"pli {bend + 1} · {op.AngleCible:0}° · {(aval ? "aval" : "amont")}{(op.Retournee ? " · ⟲retourné" : "")}");
+            }
+            sol.ChangementsSens = chg;
+            sol.Resume = string.Join("   →   ", parts);
+            return sol;
+        }
+
+        static string Cle(SolutionPliage s)
+        {
+            var sb = new StringBuilder();
+            foreach (var op in s.Sequence)
+                sb.Append(op.Bend).Append(op.ButeeAval ? 'A' : 'a').Append(op.Retournee ? 'R' : 'r').Append('|');
+            return sb.ToString();
+        }
+    }
+}
