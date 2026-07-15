@@ -10,6 +10,9 @@ namespace SimulateurPliage.Pliage
     /// </summary>
     public static class Detecteur
     {
+        /// <summary>Tolérance sur la butée mini : un pan de 10 passe face à une cote machine de 10,2.</summary>
+        public const double TolButee = 0.5;
+
         public static List<Collision> Analyser(EtatEtape st, Piece p, Materiel.Plieuse plieuse,
                                                Materiel.Poincon poincon, Materiel.Matrice matrice, Materiel.Embase embase)
         {
@@ -83,7 +86,11 @@ namespace SimulateurPliage.Pliage
                 res.Add(new Collision("butée arrière",
                     $"pan de {st.ButeeDistance:0} mm > course butée {plieuse.ButeeMax:0} mm", false));
 
-            if (plieuse != null && st.ButeeDistance > 0 && st.ButeeDistance < plieuse.ButeeMin)
+            // Butée mini : la cote machine (10,2) est un relevé au réglet, pas une loi. Un pan
+            // de 10 se cale en vrai, même en 4 mm — Weapon. On tolère 0,5 mm pour ne pas sortir
+            // un faux positif sur une cote ronde. En dessous, l'alerte est légitime.
+            if (plieuse != null && st.ButeeDistance > 0
+                && st.ButeeDistance < plieuse.ButeeMin - TolButee)
                 res.Add(new Collision("butée arrière",
                     $"pan de {st.ButeeDistance:0} mm < butée mini {plieuse.ButeeMin:0.#} mm", false));
 

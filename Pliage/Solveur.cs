@@ -134,9 +134,10 @@ namespace SimulateurPliage.Pliage
             if (k + 1 < n && faits[k + 1] && avalPan < RetourAdjMini) return false;
             if (k - 1 >= 0 && faits[k - 1] && amont < RetourAdjMini) return false;
 
-            // 3. caler en butée : le pan lu (amont, ou aval si bout pour bout) >= butée mini
+            // 3. caler en butée : le pan lu (amont, ou aval si bout pour bout) >= butée mini,
+            //    avec la même tolérance que le Detecteur (un pan de 10 se cale en vrai).
             double lu = aval ? avalPan : amont;
-            if (lu < buteeMini) return false;
+            if (lu < buteeMini - Detecteur.TolButee) return false;
 
             return true;
         }
