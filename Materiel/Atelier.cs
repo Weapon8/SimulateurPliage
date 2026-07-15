@@ -12,7 +12,11 @@ namespace SimulateurPliage.Materiel
     /// </summary>
     public sealed class Atelier
     {
-        public const int CURRENT_VERSION = 12;
+        // 13 : poinçon Rolleri P.150.35.R2 (H150, R2), matrices en T inversé (tête + pied),
+        //      Euram 2009 recotée en 4 voies (V50/V35 à 85°, V22/V16 à 88°).
+        // Toute modif des presets DOIT incrémenter ce numéro, sinon l'atelier.json déjà
+        // sauvegardé chez l'opérateur les écrase au démarrage et la modif ne sert à rien.
+        public const int CURRENT_VERSION = 13;
 
         public int Version { get; set; }
         public List<Plieuse> Plieuses { get; set; } = new();
