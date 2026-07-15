@@ -31,11 +31,12 @@ namespace SimulateurPliage.Vues
         public void Outillage(Plieuse pl, Poincon po, Matrice ma, Embase em)
         { plieuse = pl; poincon = po; matrice = ma; embase = em; Invalidate(); }
 
-        // Sens horizontal FIXE : poinçon (col de cygne) + butée à DROITE, la tôle se
-        // développe vers la gauche — comme toutes les plieuses. +1 = aucun miroir.
-        int sensX = 1;
-
-        PointF T(double x, double y) => new((float)(ox + sensX * x * sc), (float)(oy - y * sc));
+        // ═══════════════════════════════════════════════════════════════════════
+        //  SENS VERROUILLÉ — NE JAMAIS MODIFIER / NE JAMAIS MIROITER
+        //  Poinçon (col de cygne) + butée = À DROITE. Tôle se développe vers la GAUCHE.
+        //  Toutes les plieuses sont bâties ainsi. Aucun paramètre de miroir.
+        // ═══════════════════════════════════════════════════════════════════════
+        PointF T(double x, double y) => new((float)(ox + x * sc), (float)(oy - y * sc));
         PointF T(Pt p) => T(p.X, p.Y);
 
         protected override void OnPaint(PaintEventArgs e)
@@ -48,8 +49,10 @@ namespace SimulateurPliage.Vues
 
             double ep = Math.Max(0.2, piece.Epaisseur);
             // Ancrage bissectrice : le sommet du pli est a l'origine, sous la pointe du
-            // poincon. La face haute de la tole est donc a y = +ep/2 au sommet.
-            double assise = 0;
+            // poincon. On remonte la fibre neutre d'une demi-epaisseur : la SOUS-FACE de la
+            // tole pose alors sur la face matrice (y = 0) au lieu d'etre a moitie dans le bloc.
+            // Le poincon est deja dessine a +ep/2 : sa pointe touche la face haute. Coherent.
+            double assise = ep / 2.0;
 
             var matriceC = matrice?.Contour(etat.Op.V);
             var poinconC = poincon?.Contour();
@@ -64,6 +67,7 @@ namespace SimulateurPliage.Vues
             HauteurLibre(g, hLibre);
             DessinerTole(g, ep, assise);
             DessinerButee(g);
+            DessinerSigles(g);
             Legende(g);
         }
 
@@ -87,9 +91,7 @@ namespace SimulateurPliage.Vues
             sc = Math.Min((Width - 2 * m) / dx, (Height - 2 * m) / dy);
             if (sc <= 0 || double.IsInfinity(sc)) return false;
 
-            // le monde-x qui doit tomber à gauche de l'écran dépend du miroir
-            double gaucheMonde = sensX > 0 ? minX : maxX;
-            ox = m - sensX * gaucheMonde * sc + (Width - 2 * m - dx * sc) / 2;
+            ox = m - minX * sc + (Width - 2 * m - dx * sc) / 2;
             oy = Height - m + minY * sc - (Height - 2 * m - dy * sc) / 2;
             return true;
         }
@@ -260,6 +262,98 @@ namespace SimulateurPliage.Vues
             using var pn = new Pen(Theme.Accent, 3.5f)
             { StartCap = LineCap.Round, EndCap = LineCap.Round };
             g.DrawLine(pn, T(bd, 0), T(bd, hc));
+        }
+
+        // Sigles d'etape : memes couleurs qu'au pupitre, pour ne jamais confondre les deux.
+        static readonly Color CBlue  = Color.FromArgb(111, 208, 255);   // ⇄ a plat
+        static readonly Color CAmber = Color.FromArgb(255, 184, 77);    // ⇅ dessus/dessous
+
+        /// <summary>En dessous, l'operateur tient trop court : les mains arrivent pres du bec.</summary>
+        public const double PriseAlerte = 50;
+
+        /// <summary>
+        /// Sigles de retournement + alerte securite, en haut a droite de la vue.
+        ///   ⇄ BLEU  = retournement A PLAT (bout pour bout) : la face ne change pas,
+        ///             la butee lit le pan aval.
+        ///   ⇅ AMBRE = retournement DESSUS/DESSOUS : la face laquee change de cote,
+        ///             les plis deja formes pointent a l'oppose.
+        /// Deux couleurs franchement differentes : d'un coup d'oeil on sait lequel c'est.
+        /// </summary>
+        void DessinerSigles(Graphics g)
+        {
+            if (etat?.Op == null || piece == null) return;
+
+            float x = Math.Max(12, Width - 230), y = 14;
+            using var f = new Font("Segoe UI", 8.5f);
+
+            if (etat.Op.ButeeAval)
+            {
+                SigleAPlat(g, x + 10, y + 10, CBlue);
+                using var b = new SolidBrush(CBlue);
+                g.DrawString("retourné à plat (bout pour bout)", f, b, x + 26, y + 3);
+                y += 24;
+            }
+            if (etat.Op.Retournee)
+            {
+                SigleFace(g, x + 10, y + 10, CAmber);
+                using var b = new SolidBrush(CAmber);
+                g.DrawString("retourné dessus/dessous", f, b, x + 26, y + 3);
+                y += 24;
+            }
+
+            // Securite : ce que l'operateur a en main de son cote. Regle metier (Weapon) :
+            // toujours le plus grand cote vers l'operateur. Sous 50 mm, les doigts sont pres
+            // du poincon — surtout avec un interimaire ou un apprenti pas encore forme.
+            double prise = Solveur.PriseOperateur(piece.Segments, etat.Op.Bend, etat.Op.ButeeAval);
+            if (prise > 0 && prise < PriseAlerte)
+            {
+                MainDanger(g, x + 10, y + 11, 9f);
+                using var b = new SolidBrush(Theme.Alerte);
+                g.DrawString($"prise {prise:0} mm — attention aux doigts", f, b, x + 26, y + 3);
+            }
+        }
+
+        /// <summary>⇄ : deux fleches horizontales opposees.</summary>
+        static void SigleAPlat(Graphics g, float cx, float cy, Color c)
+        {
+            using var pn = new Pen(c, 2f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+            Fleche(g, pn, cx - 8, cy - 4, cx + 8, cy - 4);
+            Fleche(g, pn, cx + 8, cy + 4, cx - 8, cy + 4);
+        }
+
+        /// <summary>⇅ : deux fleches verticales opposees.</summary>
+        static void SigleFace(Graphics g, float cx, float cy, Color c)
+        {
+            using var pn = new Pen(c, 2f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+            Fleche(g, pn, cx - 4, cy + 8, cx - 4, cy - 8);
+            Fleche(g, pn, cx + 4, cy - 8, cx + 4, cy + 8);
+        }
+
+        static void Fleche(Graphics g, Pen pn, float x1, float y1, float x2, float y2)
+        {
+            g.DrawLine(pn, x1, y1, x2, y2);
+            double a = Math.Atan2(y2 - y1, x2 - x1);
+            const double t = Math.PI / 6, L = 4.5;
+            g.DrawLine(pn, x2, y2, (float)(x2 - L * Math.Cos(a - t)), (float)(y2 - L * Math.Sin(a - t)));
+            g.DrawLine(pn, x2, y2, (float)(x2 - L * Math.Cos(a + t)), (float)(y2 - L * Math.Sin(a + t)));
+        }
+
+        /// <summary>Main rouge dans un rond : paume, quatre doigts, pouce. Attention aux doigts.</summary>
+        static void MainDanger(Graphics g, float cx, float cy, float r)
+        {
+            using var pn = new Pen(Theme.Alerte, 1.6f);
+            g.DrawEllipse(pn, cx - r, cy - r, 2 * r, 2 * r);
+
+            using var pm = new Pen(Theme.Alerte, 1.3f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+            float u = r / 4f;
+            g.DrawRectangle(pm, cx - 1.6f * u, cy + 0.2f * u, 3.2f * u, 2.0f * u);   // paume
+            for (int i = 0; i < 4; i++)                                              // doigts
+            {
+                float fx = cx - 1.15f * u + i * 0.77f * u;
+                float h = (i == 0 || i == 3) ? 1.4f * u : 1.9f * u;
+                g.DrawLine(pm, fx, cy + 0.2f * u, fx, cy + 0.2f * u - h);
+            }
+            g.DrawLine(pm, cx - 1.6f * u, cy + 0.9f * u, cx - 2.7f * u, cy - 0.2f * u); // pouce
         }
 
         void Legende(Graphics g)

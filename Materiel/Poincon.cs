@@ -10,10 +10,10 @@ namespace SimulateurPliage.Materiel
     /// </summary>
     public sealed class Poincon
     {
-        public string Nom = "Rolleri P.120.35.R3";
-        public double Hauteur  = 120;   // hauteur totale (réglable)
+        public string Nom = "Rolleri P.150.35.R2";
+        public double Hauteur  = 150;   // hauteur totale (réglable) — P.150 monté sur la Loire Safe
         public double AngleDeg = 35;    // bec total : 10° avant + 25° arrière
-        public double R        = 1.0;   // rayon de pointe monté sur machine
+        public double R        = 2.0;   // rayon de pointe R2 (Rolleri P.150.35.R2)
         public double CorpsLg  = 26;
 
         const double HRef     = 120.0;
