@@ -11,6 +11,7 @@ namespace SimulateurPliage.Pliage
         public List<Operation> Sequence = new();
         public int Retournes;         // nombre de retournements dessus/dessous
         public int ChangementsSens;   // nombre de bascules du sens d'engagement (amont <-> aval)
+        public double PriseMini;      // le plus court « ce que l'opérateur tient » de la séquence (mm)
         public string Resume = "";
     }
 
@@ -59,7 +60,7 @@ namespace SimulateurPliage.Pliage
             void Dfs(int nbFaits, int parite, int retournes)
             {
                 if (++gardeFou > 200000) return;                 // sécurité anti-explosion
-                if (nbFaits == n) { brutes.Add(Materialiser(seq, anglesParPli, vParPli, retournes)); return; }
+                if (nbFaits == n) { brutes.Add(Materialiser(seq, segments, anglesParPli, vParPli, retournes)); return; }
 
                 for (int k = 0; k < n; k++)
                 {
@@ -101,8 +102,16 @@ namespace SimulateurPliage.Pliage
 
             uniq.Sort((a, b) =>
             {
+                // 1. le moins de retournements (manutention + risque de rayer le laqué)
                 int c = a.Retournes.CompareTo(b.Retournes);
                 if (c != 0) return c;
+                // 2. RÈGLE MÉTIER : le plus grand côté vers l'opérateur. On classe sur la prise
+                //    la plus COURTE de la séquence, la plus grande d'abord : c'est le maillon
+                //    faible qui décide, pas la moyenne. Une séquence qui laisse 20 mm en main
+                //    part derrière une qui en laisse 200, même si elle a moins de bascules.
+                c = b.PriseMini.CompareTo(a.PriseMini);
+                if (c != 0) return c;
+                // 3. à sécurité égale, le moins de manip
                 c = a.ChangementsSens.CompareTo(b.ChangementsSens);
                 if (c != 0) return c;
                 return a.Sequence.Count.CompareTo(b.Sequence.Count);
@@ -130,6 +139,23 @@ namespace SimulateurPliage.Pliage
             if (lu < buteeMini) return false;
 
             return true;
+        }
+
+        /// <summary>
+        /// Ce que l'OPÉRATEUR tient devant lui, en mm de développé. Le Moteur range le pan
+        /// côté butée à droite et le formage à gauche (opérateur) : donc l'opérateur tient
+        /// l'aval en engagement direct, l'amont si la pièce est retournée bout pour bout (⇄).
+        /// RÈGLE MÉTIER (Weapon) : « toujours le plus grand côté vers l'opérateur quand c'est
+        /// possible ». Tenir un bout de 20 mm, c'est les doigts au poinçon — jamais avec un
+        /// intérimaire. Quand on n'a pas le choix, on passe un bras derrière pour soulager au
+        /// relâchement : c'est faisable, mais ça se classe en dernier, pas en premier.
+        /// </summary>
+        public static double PriseOperateur(List<double> segs, int bend, bool aval)
+        {
+            double s = 0;
+            if (aval) { for (int i = 0; i <= bend && i < segs.Count; i++) s += segs[i]; }
+            else      { for (int i = bend + 1; i < segs.Count; i++) s += segs[i]; }
+            return s;
         }
 
         static double VDe(Matrice m, double[] vs, int k)
@@ -163,9 +189,9 @@ namespace SimulateurPliage.Pliage
         }
 
         static SolutionPliage Materialiser(List<(int bend, int face, bool aval)> seq,
-            double[] angles, double[] vs, int retournes)
+            List<double> segments, double[] angles, double[] vs, int retournes)
         {
-            var sol = new SolutionPliage { Retournes = retournes };
+            var sol = new SolutionPliage { Retournes = retournes, PriseMini = double.MaxValue };
             var parts = new List<string>();
             bool? dernierAval = null; int chg = 0;
             foreach (var (bend, face, aval) in seq)
@@ -182,8 +208,11 @@ namespace SimulateurPliage.Pliage
                 sol.Sequence.Add(op);
                 if (dernierAval.HasValue && dernierAval.Value != aval) chg++;
                 dernierAval = aval;
-                parts.Add($"pli {bend + 1} · {op.AngleCible:0}° · {(aval ? "aval" : "amont")}{(op.Retournee ? " · ⟲retourné" : "")}");
+                double prise = PriseOperateur(segments, bend, aval);
+                if (prise < sol.PriseMini) sol.PriseMini = prise;
+                parts.Add($"pli {bend + 1} · {op.AngleCible:0}° · {(aval ? "⇄ aval" : "amont")}{(op.Retournee ? " · ⇅" : "")} · prise {prise:0}");
             }
+            if (sol.PriseMini == double.MaxValue) sol.PriseMini = 0;
             sol.ChangementsSens = chg;
             sol.Resume = string.Join("   →   ", parts);
             return sol;

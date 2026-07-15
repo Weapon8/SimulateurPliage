@@ -132,7 +132,10 @@ namespace SimulateurPliage.Pliage
         /// reste protégé dessous pendant les 2 premiers plis, puis on retourne.
         /// Séquence opérateur réelle, dans l'ordre d'exécution — TOUS les volets montent :
         ///   1) pli du 10 (bend 2) à 45°  — FNL dessus
-        ///   2) pli du 25 (bend 1) à 92°  — FNL dessus, appui sur le retour du 10 déjà relevé
+        ///   2) pli du 25 (bend 1) à 92° en butée AVAL ⇄ — FNL dessus. Le retour du 10 déjà plié
+        ///      doit se loger dans le DÉGAGEMENT DU COL DE CYGNE (flanc droit, 2,8 mm à y=17,5) ;
+        ///      côté opérateur le corps fait 8,7 mm et le retour (pointe à 8,0) taperait dedans.
+        ///      C'est lui qui vient à l'appui — mesuré dans le code, pas supposé.
         ///   3) ⇅ dessus/dessous, puis pli du 30 (bend 0) à 90° en butée AMONT
         ///      → la face laquée passe dessus (côté montre), la façade descend du bon côté.
         /// Le ⇅ (Retournee) inverse le sens des plis déjà faits : c'est lui qui met le 30
@@ -146,7 +149,7 @@ namespace SimulateurPliage.Pliage
             var p = new Piece { Epaisseur = 1.0, Nom = "Z laqué 30·25·25·10" };
             p.Segments.AddRange(new double[] { 30, 25, 25, 10 });
             p.Sequence.Add(new Operation { Bend = 2, AngleCible = 45, Sens = Sens.Haut, V = 16 });
-            p.Sequence.Add(new Operation { Bend = 1, AngleCible = 92, Sens = Sens.Haut, V = 16 });
+            p.Sequence.Add(new Operation { Bend = 1, AngleCible = 92, Sens = Sens.Haut, V = 16, ButeeAval = true });
             p.Sequence.Add(new Operation { Bend = 0, AngleCible = 90, Sens = Sens.Haut, V = 16, Retournee = true });
             return p;
         }
