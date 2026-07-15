@@ -321,15 +321,24 @@ namespace SimulateurPliage.Vues
                 y += 24;
             }
 
-            // Un retournement est un CHANGEMENT entre deux etapes, pas un etat de l'etape.
-            // ButeeAval dit seulement quel bout part a la butee. Si l'etape d'avant avait deja
-            // ce bout-la, on ne manipule RIEN : on pousse, et le pli deja forme vient a l'appui.
-            // Aucun sigle. Idem pour la face. Et a la premiere etape il n'y a rien avant :
-            // c'est le depart du pliage, on presente la tole comme on veut — pas de sigle.
+            // Un retournement est un GESTE entre deux etapes, pas un etat de l'etape. On affiche
+            // ce que l'operateur FAIT, pas les cases qui changent dans la sequence.
+            //
+            //   ⇅ bascule dessus/dessous : on retourne la piece sur elle-meme. UN seul geste —
+            //     et il change la face ET inverse les bouts en meme temps. Donc quand la face
+            //     change, c'est ⇅ tout seul : jamais ⇅ + ⇄, ce serait compter deux fois la
+            //     meme main.
+            //   ⇄ rotation 180° A PLAT : les bouts s'inversent, la face NE change PAS. C'est le
+            //     seul cas ou le ⇄ existe (le pli 4 du chevetre).
+            //   rien : on pousse, c'est tout — meme bout a la butee, meme face.
+            //
+            // Et a la premiere etape il n'y a rien avant : c'est le depart du pliage, on presente
+            // la tole comme on veut. Pas de sigle.
             Operation prec = (etat.Etape > 0 && etat.Etape - 1 < piece.Sequence.Count)
                              ? piece.Sequence[etat.Etape - 1] : null;
-            bool aPlat = prec != null && etat.Op.ButeeAval != prec.ButeeAval;
+            bool bouts = prec != null && etat.Op.ButeeAval != prec.ButeeAval;
             bool face  = prec != null && etat.Op.Retournee != prec.Retournee;
+            bool aPlat = bouts && !face;
 
             if (aPlat)
             {
