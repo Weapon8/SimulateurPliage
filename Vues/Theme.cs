@@ -16,7 +16,8 @@ namespace SimulateurPliage.Vues
         public static readonly Color Separateur = Color.FromArgb(46, 53, 63);
         public static readonly Color Grille  = Color.FromArgb(34, 40, 49);
 
-        public static readonly Color Tole    = Color.FromArgb(63, 131, 235);   // pli direct
+        public static readonly Color Tole    = Color.FromArgb(63, 131, 235);   // FNL dessus (face de référence)
+        public static readonly Color ToleFL  = Color.FromArgb(167, 129, 245);  // FL dessus : pièce retournée, laquage visible
         public static readonly Color Reprise = Color.FromArgb(63, 185, 80);
         public static readonly Color Alerte  = Color.FromArgb(229, 83, 75);
 

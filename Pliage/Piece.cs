@@ -94,6 +94,27 @@ namespace SimulateurPliage.Pliage
             }
         }
 
+        /// <summary>
+        /// Index de la ligne de pli qui vient EN APPUI contre le doigt de butée à l'étape s,
+        /// ou -1 si c'est un simple bord de tôle qui touche.
+        ///
+        /// La butée lit le pan amont (ou l'aval si la pièce est présentée bout pour bout).
+        /// Si ce pan porte à son extrémité un pli DÉJÀ formé, c'est ce retour qui vient contre
+        /// le doigt — pas le bord brut. C'est le « pli à la butée » de l'opérateur : le 25 qui
+        /// s'appuie sur le retour du 10, le 40 qui bute contre le retour du 20, le 100 contre
+        /// celui du 40. Ce n'est PAS un retournement : on pousse, c'est tout.
+        /// </summary>
+        public int PliAppui(int s)
+        {
+            if (s < 0 || s >= Sequence.Count) return -1;
+            var op = Sequence[s];
+            int voisin = op.ButeeAval ? op.Bend + 1 : op.Bend - 1;
+            if (voisin < 0 || voisin >= NbPlis) return -1;
+            for (int i = 0; i < s; i++)
+                if (Sequence[i].Bend == voisin) return voisin;   // déjà formé => il fait l'appui
+            return -1;
+        }
+
         /// <summary>Angle intérieur d'une ligne juste avant l'étape s.</summary>
         public double AngleAvant(int s)
         {

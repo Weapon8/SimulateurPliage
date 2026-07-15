@@ -152,29 +152,39 @@ namespace SimulateurPliage.Vues
                 chaine.Add(new Pt(etat.Formage[i].X, etat.Formage[i].Y + assise));
             if (chaine.Count < 2) return;
 
+            // La couleur DIT quelle face est dessus : bleu = FNL (face de référence, laquage
+            // protégé dessous), violet = FL (pièce retournée, le laquage est visible — on y
+            // fait gaffe). Collision et reprise passent devant : ce sont des alertes.
             Color col = etat.Bloque ? Theme.Alerte
-                      : etat.Op.Reprise ? Theme.Reprise : Theme.Tole;
+                      : etat.Op.Reprise ? Theme.Reprise
+                      : etat.Op.Retournee ? Theme.ToleFL
+                      : Theme.Tole;
 
-            // épaisseur réelle en fond (souvent fine), trait porteur par-dessus
-            var ext = Offset(chaine, +ep / 2);
-            var inte = Offset(chaine, -ep / 2);
+            // La tole est un CORPS, pas un trait : remplissage + contour net, pour qu'on VOIE
+            // qu'elle pose sur l'outillage. L'ancien trait de 3 px peint par-dessus avalait le
+            // ruban et la faisait lire comme une ligne.
+            // Le champ fait ~230 mm de haut (poincon 150 + matrice 80) : 1 mm de tole y vaut
+            // 3 px. On garantit donc une epaisseur DESSINEE minimale, comme sur un plan de
+            // coupe. On epaissit vers le HAUT : la sous-face reste posee sur la face matrice
+            // (y = 0 grace a l'assise), jamais dans le bloc.
+            double epVue = Math.Max(ep, EpaisseurMiniPx / Math.Max(sc, 1e-6));
+            var inte = Offset(chaine, -ep / 2);                 // sous-face reelle
+            var ext  = Offset(chaine, -ep / 2 + epVue);         // face haute, epaissie si besoin
+
             var ruban = new List<PointF>(ext.Count + inte.Count);
             foreach (var p in ext) ruban.Add(T(p));
             for (int i = inte.Count - 1; i >= 0; i--) ruban.Add(T(inte[i]));
-            using (var b = new SolidBrush(Color.FromArgb(150, col)))
-                g.FillPolygon(b, ruban.ToArray());
+            var poly = ruban.ToArray();
 
-            var ligne = new PointF[chaine.Count];
-            for (int i = 0; i < chaine.Count; i++) ligne[i] = T(chaine[i]);
-            using (var pn = new Pen(col, 3f)
-            { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
-                g.DrawLines(pn, ligne);
+            using (var b = new SolidBrush(Color.FromArgb(175, col)))
+                g.FillPolygon(b, poly);
+            using (var pn = new Pen(col, 1.6f) { LineJoin = LineJoin.Round })
+                g.DrawPolygon(pn, poly);
 
             using (var b = new SolidBrush(col))
             {
-                foreach (var p in ligne) g.FillEllipse(b, p.X - 2.4f, p.Y - 2.4f, 4.8f, 4.8f);
                 var o = T(0, assise);
-                g.FillEllipse(b, o.X - 4, o.Y - 4, 8, 8);
+                g.FillEllipse(b, o.X - 3.5f, o.Y - 3.5f, 7, 7);   // sommet du pli actif
             }
         }
 
@@ -271,6 +281,9 @@ namespace SimulateurPliage.Vues
         /// <summary>En dessous, l'operateur tient trop court : les mains arrivent pres du bec.</summary>
         public const double PriseAlerte = 50;
 
+        /// <summary>Epaisseur dessinee minimale de la tole, en pixels ecran.</summary>
+        const double EpaisseurMiniPx = 5.0;
+
         /// <summary>
         /// Sigles de retournement + alerte securite, en haut a droite de la vue.
         ///   ⇄ BLEU  = retournement A PLAT (bout pour bout) : la face ne change pas,
@@ -283,17 +296,49 @@ namespace SimulateurPliage.Vues
         {
             if (etat?.Op == null || piece == null) return;
 
-            float x = Math.Max(12, Width - 230), y = 14;
+            float x = Math.Max(12, Width - 252), y = 14;
             using var f = new Font("Segoe UI", 8.5f);
 
-            if (etat.Op.ButeeAval)
+            // FACE DESSUS. Meme code couleur que la tole : bleu = FNL, violet = FL.
+            Color cf = etat.Op.Retournee ? Theme.ToleFL : Theme.Tole;
+            using (var b = new SolidBrush(cf))
+            {
+                g.FillRectangle(b, x + 4, y + 4, 12, 12);
+                g.DrawString(etat.Op.Retournee ? "FL dessus — laquage visible"
+                                               : "FNL dessus — laquage protégé dessous", f, b, x + 26, y + 3);
+            }
+            y += 24;
+
+            // PLI A LA BUTEE. Le pan lu porte un retour deja forme : c'est LUI qui vient contre
+            // le doigt, pas le bord brut. On pousse, on ne retourne rien — d'ou une simple
+            // fleche vers la butee, et surtout pas le sigle du retournement.
+            int appui = piece.PliAppui(etat.Etape);
+            if (appui >= 0)
+            {
+                SigleAppui(g, x + 10, y + 10, Theme.Accent);
+                using var b = new SolidBrush(Theme.Accent);
+                g.DrawString($"appui sur le retour du pli {appui + 1}", f, b, x + 26, y + 3);
+                y += 24;
+            }
+
+            // Un retournement est un CHANGEMENT entre deux etapes, pas un etat de l'etape.
+            // ButeeAval dit seulement quel bout part a la butee. Si l'etape d'avant avait deja
+            // ce bout-la, on ne manipule RIEN : on pousse, et le pli deja forme vient a l'appui.
+            // Aucun sigle. Idem pour la face. Et a la premiere etape il n'y a rien avant :
+            // c'est le depart du pliage, on presente la tole comme on veut — pas de sigle.
+            Operation prec = (etat.Etape > 0 && etat.Etape - 1 < piece.Sequence.Count)
+                             ? piece.Sequence[etat.Etape - 1] : null;
+            bool aPlat = prec != null && etat.Op.ButeeAval != prec.ButeeAval;
+            bool face  = prec != null && etat.Op.Retournee != prec.Retournee;
+
+            if (aPlat)
             {
                 SigleAPlat(g, x + 10, y + 10, CBlue);
                 using var b = new SolidBrush(CBlue);
-                g.DrawString("retourné à plat (bout pour bout)", f, b, x + 26, y + 3);
+                g.DrawString("retourné 180° à plat (bout pour bout)", f, b, x + 26, y + 3);
                 y += 24;
             }
-            if (etat.Op.Retournee)
+            if (face)
             {
                 SigleFace(g, x + 10, y + 10, CAmber);
                 using var b = new SolidBrush(CAmber);
@@ -311,6 +356,14 @@ namespace SimulateurPliage.Vues
                 using var b = new SolidBrush(Theme.Alerte);
                 g.DrawString($"prise {prise:0} mm — attention aux doigts", f, b, x + 26, y + 3);
             }
+        }
+
+        /// <summary>Fleche « pli a la butee » : le retour deja forme vient contre le doigt.</summary>
+        static void SigleAppui(Graphics g, float cx, float cy, Color c)
+        {
+            using var pn = new Pen(c, 2f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+            Fleche(g, pn, cx - 9, cy, cx + 3, cy);
+            g.DrawLine(pn, cx + 7, cy - 6, cx + 7, cy + 6);   // le doigt de butee
         }
 
         /// <summary>⇄ : deux fleches horizontales opposees.</summary>
@@ -359,7 +412,7 @@ namespace SimulateurPliage.Vues
         void Legende(Graphics g)
         {
             using var f = new Font("Segoe UI", 8.5f);
-            g.DrawString("bleu = tôle · vert = reprise · rouge = collision outillage",
+            g.DrawString("bleu = FNL dessus · violet = FL dessus · vert = reprise · rouge = collision",
                 f, new SolidBrush(Theme.Discret), 12, Height - 22);
         }
 
