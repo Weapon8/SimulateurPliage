@@ -43,6 +43,7 @@ namespace SimulateurPliage.Materiel
         public List<double[]> Contour(double v)
         {
             var vf = VProche(v);
+            if (MultiV) return Contour4Voies(vf);
             double prof = vf.ProfondeurReelle;
             double demiT = Math.Max(TeteLargeur, vf.V + 8) / 2.0;          // la tête doit border le vé
             double demiP = Math.Max(PiedLargeur, demiT * 2) / 2.0;         // le pied déborde la tête
@@ -62,6 +63,79 @@ namespace SimulateurPliage.Materiel
                 new[] { -demiP, yPied },     // épaulement du pied (gauche)
                 new[] { -demiT, yPied },     // remontée de la tête (gauche)
             };
+        }
+
+        /// <summary>
+        /// Les vés d'une 4 voies classés du PLUS PETIT au PLUS GRAND — c'est comme ça qu'un
+        /// opérateur numérote ses faces : 1 = le petit vé (tôle fine), 4 = le grand. Plus la
+        /// tôle est forte, plus on ouvre : le tonnage chute et on n'écrase ni la machine ni
+        /// l'outillage. Liste vide si ce n'est pas une 4 voies.
+        /// </summary>
+        public List<VForm> Faces()
+        {
+            var l = new List<VForm>();
+            if (!MultiV) return l;
+            l.AddRange(Vs);
+            l.Sort((a, b) => a.V.CompareTo(b.V));
+            return l;
+        }
+
+        /// <summary>Libellé d'une face pour le sélecteur : « 1 · V16 · 88° · R2 ».</summary>
+        public string LibelleFace(int i)
+        {
+            var f = Faces();
+            if (i < 0 || i >= f.Count) return "";
+            return $"{i + 1} · V{f[i].V:0.#} · {f[i].AngleDeg:0}° · R{f[i].R:0.#}";
+        }
+
+        /// <summary>Le vé de MÊME ANGLE : sur une 4 voies il est sur la face OPPOSÉE.</summary>
+        VForm Jumeau(VForm x)
+        {
+            foreach (var y in Vs)
+                if (!ReferenceEquals(y, x) && Math.Abs(y.AngleDeg - x.AngleDeg) < 0.5) return y;
+            return null;
+        }
+
+        /// <summary>
+        /// Matrice 4 VOIES, en section : bloc carré avec un vé usiné sur CHACUNE des quatre
+        /// faces — l'X du plan constructeur. On tourne le bloc pour amener le vé voulu en haut.
+        /// Les vés de même angle sont sur des faces opposées (85° dessus/dessous, 88° gauche
+        /// et droite) : le jumeau du vé actif passe donc en bas, les deux autres sur les côtés.
+        ///
+        /// Ce n'est pas du décor. C'est l'outil qui permet de plier du fort à 90° : on ouvre le
+        /// vé, le tonnage s'effondre, et on n'écrase ni la machine ni l'outillage. Les 85/88°
+        /// existent pour pouvoir écraser et rattraper le retour élastique — avec un vé à 90°
+        /// on ne ferait jamais un 90°.
+        /// </summary>
+        List<double[]> Contour4Voies(VForm haut)
+        {
+            double c = Math.Max(TeteLargeur, PiedLargeur);   // le bloc est carré
+            double d = c / 2.0;                              // demi-côté
+            double mid = -d;                                 // milieu des faces latérales
+
+            VForm bas = Jumeau(haut);
+            VForm gauche = null, droite = null;
+            foreach (var x in Vs)
+                if (!ReferenceEquals(x, haut) && !ReferenceEquals(x, bas))
+                { if (gauche == null) gauche = x; else if (droite == null) droite = x; }
+
+            double P(VForm f) => f == null ? 0 : Math.Min(f.ProfondeurReelle, d - 2);
+            double L(VForm f) => f == null ? 0 : Math.Min(f.V, c - 4);
+
+            var p = new List<double[]>();
+            // face du HAUT (y = 0), de gauche à droite
+            p.Add(new[] { -d, 0.0 });
+            if (haut != null) { p.Add(new[] { -L(haut) / 2, 0.0 }); p.Add(new[] { 0.0, -P(haut) }); p.Add(new[] { L(haut) / 2, 0.0 }); }
+            p.Add(new[] { d, 0.0 });
+            // face de DROITE, en descendant
+            if (droite != null) { p.Add(new[] { d, mid + L(droite) / 2 }); p.Add(new[] { d - P(droite), mid }); p.Add(new[] { d, mid - L(droite) / 2 }); }
+            p.Add(new[] { d, -c });
+            // face du BAS, de droite à gauche
+            if (bas != null) { p.Add(new[] { L(bas) / 2, -c }); p.Add(new[] { 0.0, -c + P(bas) }); p.Add(new[] { -L(bas) / 2, -c }); }
+            p.Add(new[] { -d, -c });
+            // face de GAUCHE, en remontant
+            if (gauche != null) { p.Add(new[] { -d, mid - L(gauche) / 2 }); p.Add(new[] { -d + P(gauche), mid }); p.Add(new[] { -d, mid + L(gauche) / 2 }); }
+            return p;
         }
 
         public override string ToString() => Nom;

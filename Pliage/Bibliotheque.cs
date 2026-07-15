@@ -52,17 +52,62 @@ namespace SimulateurPliage.Pliage
 
         public static Bibliotheque Charger()
         {
+            Bibliotheque b = null;
             try
             {
                 string f = Fichier();
                 if (File.Exists(f))
                 {
-                    var b = JsonSerializer.Deserialize<Bibliotheque>(File.ReadAllText(f), Opt());
-                    if (b != null) { b.Profils ??= new(); return b; }
+                    b = JsonSerializer.Deserialize<Bibliotheque>(File.ReadAllText(f), Opt());
+                    if (b != null) b.Profils ??= new();
                 }
             }
             catch { }
-            return new Bibliotheque();
+            b ??= new Bibliotheque();
+            b.AssurerReferences();
+            return b;
+        }
+
+        /// <summary>
+        /// Les pièces de RÉFÉRENCE de l'atelier, rangées sous le chantier « Références » :
+        /// le chevêtre et le Z laqué. Ce sont elles que l'autotest contrôle, et elles servent
+        /// d'étalon quand on doute d'une modif — elles doivent donc rester chargeables d'un
+        /// clic, toujours. On les réinjecte si elles manquent, sans rien toucher d'autre.
+        /// </summary>
+        public void AssurerReferences()
+        {
+            bool ajout = false;
+            ajout |= Injecter(Piece.Demo(), "Chevêtre 20·40·100·40·20");
+            ajout |= Injecter(Piece.DemoZLaque(), "Z laqué 30·25·25·10");
+            if (ajout)
+            {
+                Profils.Sort((a, c) =>
+                {
+                    int r = string.Compare(a.Chantier ?? "", c.Chantier ?? "", StringComparison.OrdinalIgnoreCase);
+                    return r != 0 ? r : string.Compare(a.Nom, c.Nom, StringComparison.OrdinalIgnoreCase);
+                });
+                Sauver();
+            }
+        }
+
+        const string CHANTIER_REF = "Références";
+
+        bool Injecter(Piece p, string nom)
+        {
+            foreach (var x in Profils)
+                if (string.Equals(x.Nom, nom, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(x.Chantier ?? "", CHANTIER_REF, StringComparison.OrdinalIgnoreCase))
+                    return false;                       // déjà là : on ne l'écrase pas
+
+            var copie = Copier(p);
+            copie.Nom = nom; copie.Chantier = CHANTIER_REF;
+            Profils.Add(new Profil
+            {
+                Nom = nom, Chantier = CHANTIER_REF,
+                Date = DateTime.Now.ToString("yyyy-MM-dd"),
+                Piece = copie
+            });
+            return true;
         }
 
         public void Sauver()

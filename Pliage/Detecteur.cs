@@ -13,6 +13,22 @@ namespace SimulateurPliage.Pliage
         /// <summary>Tolérance sur la butée mini : un pan de 10 passe face à une cote machine de 10,2.</summary>
         public const double TolButee = 0.5;
 
+        /// <summary>
+        /// Effort de pliage EN L'AIR. Formule classique : F [kN/m] = 1,42 × Rm × ep² / V,
+        /// puis /9,81 pour passer en t/m. Renvoie le total en tonnes sur la longueur de pli.
+        ///
+        /// L'effort est en 1/V : c'est TOUTE la raison d'être d'une matrice 4 voies. Sur du
+        /// fort on ouvre le vé, le tonnage s'effondre, et on n'écrase ni la machine ni l'outil.
+        /// Du 4 mm en V16 sur 4 m demande ~260 t ; le même pli en V50 en demande ~83.
+        /// </summary>
+        public static double Tonnage(double rm, double ep, double v, double longueurPli, out double tParMetre)
+        {
+            tParMetre = 0;
+            if (v <= 0 || ep <= 0 || rm <= 0) return 0;
+            tParMetre = (1.42 * rm * ep * ep / v) / 9.81;      // kN/m -> t/m
+            return tParMetre * Math.Max(0, longueurPli) / 1000.0;
+        }
+
         public static List<Collision> Analyser(EtatEtape st, Piece p, Materiel.Plieuse plieuse,
                                                Materiel.Poincon poincon, Materiel.Matrice matrice, Materiel.Embase embase)
         {
@@ -89,6 +105,17 @@ namespace SimulateurPliage.Pliage
             // Butée mini : la cote machine (10,2) est un relevé au réglet, pas une loi. Un pan
             // de 10 se cale en vrai, même en 4 mm — Weapon. On tolère 0,5 mm pour ne pas sortir
             // un faux positif sur une cote ronde. En dessous, l'alerte est légitime.
+            // Tonnage : la machine, puis l'outil. Dans les deux cas la sortie est la même —
+            // OUVRIR LE VÉ. C'est le geste qui sauve la presse et le poinçon.
+            double tpm;
+            double tonnes = Tonnage(p.Rm, ep, vOuv, p.LongueurPli, out tpm);
+            if (plieuse != null && plieuse.TonnageMax > 0 && tonnes > plieuse.TonnageMax)
+                res.Add(new Collision("tonnage machine",
+                    $"{tonnes:0} t nécessaires > {plieuse.TonnageMax:0} t machine — ouvre le vé", true));
+            if (poincon != null && poincon.TonnageParMetre > 0 && tpm > poincon.TonnageParMetre)
+                res.Add(new Collision("tonnage poinçon",
+                    $"{tpm:0} t/m > {poincon.TonnageParMetre:0} t/m admissible — tu vas marquer l'outil", true));
+
             if (plieuse != null && st.ButeeDistance > 0
                 && st.ButeeDistance < plieuse.ButeeMin - TolButee)
                 res.Add(new Collision("butée arrière",

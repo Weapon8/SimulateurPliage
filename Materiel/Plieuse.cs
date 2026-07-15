@@ -26,7 +26,7 @@ namespace SimulateurPliage.Materiel
         public double TablierDeport = 50;
 
         // À mesurer sur machine.
-        public double TonnageMax = 0;       // tonnage machine (t)
+        public double TonnageMax = 180;     // tonnage machine (t) — Loire Safe : 180 t DE TÊTE, à confirmer sur la plaque
         public double DoigtHauteur = 0;     // hauteur totale du doigt au-dessus de la face matrice
         public double DoigtContact = 10;    // hauteur de la FACE D'APPUI tôle (le reste = support)
 

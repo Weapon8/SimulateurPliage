@@ -16,6 +16,10 @@ namespace SimulateurPliage.Materiel
         public double R        = 2.0;   // rayon de pointe R2 (Rolleri P.150.35.R2)
         public double CorpsLg  = 26;
 
+        /// <summary>Effort admissible sur le corps du poinçon, en t/m. Au-delà on marque l'outil.
+        /// Rolleri P.150.35.R2 : ~70 t/m. À vérifier — c'est gravé sur le corps.</summary>
+        public double TonnageParMetre = 70;
+
         const double HRef     = 120.0;
         const double UtileRef = 90.0;
         const double YStretch = 60.0;

@@ -137,7 +137,7 @@ namespace SimulateurPliage.Pliage
         /// </summary>
         public static Piece Demo()
         {
-            var p = new Piece { Epaisseur = 1.0 };
+            var p = new Piece { Epaisseur = 1.0, Nom = "Chevêtre 20·40·100·40·20" };
             p.Segments.AddRange(new double[] { 20, 40, 100, 40, 20 });
             p.Sequence.Add(new Operation { Bend = 0, AngleCible = 90, Sens = Sens.Haut, V = 16 });
             p.Sequence.Add(new Operation { Bend = 3, AngleCible = 90, Sens = Sens.Haut, V = 16, ButeeAval = true });
