@@ -50,6 +50,8 @@ namespace SimulateurPliage.Pliage
             Plieuse plieuse, Poincon poincon, Matrice matrice, Embase embase,
             double epaisseur = 1.0, double buteeMini = 10.2, int maxRetournes = 3, int maxSolutions = 30)
         {
+            if (!EntreeValide(segments, faceParPli, anglesParPli)) return new List<SolutionPliage>();
+
             int n = Math.Min(faceParPli.Length, Math.Max(0, segments.Count - 1));
             var brutes = new List<SolutionPliage>();
             var faits = new bool[n];
@@ -133,6 +135,30 @@ namespace SimulateurPliage.Pliage
             });
             if (uniq.Count > maxSolutions) uniq.RemoveRange(maxSolutions, uniq.Count - maxSolutions);
             return uniq;
+        }
+
+        /// <summary>
+        /// Garde-fou d'entrée. Le solveur ne plantait jamais sur des données pourries — il
+        /// répondait « 2 séquences » sur une pièce dont un pan valait NaN. Une réponse fausse
+        /// et confiante est pire qu'un plantage : l'opérateur la croit.
+        /// </summary>
+        static bool EntreeValide(List<double> segments, int[] faces, double[] angles)
+        {
+            int n = segments == null ? 0 : segments.Count - 1;
+            if (n < 1) return false;                                   // il faut au moins 2 pans
+            if (faces == null || faces.Length < n) return false;       // une face par pli
+            if (angles == null || angles.Length < n) return false;     // un angle par pli
+
+            foreach (var s in segments)
+                if (double.IsNaN(s) || double.IsInfinity(s) || s <= 0) return false;
+
+            for (int i = 0; i < n; i++)
+            {
+                double A = angles[i];
+                if (double.IsNaN(A) || double.IsInfinity(A) || A <= 0 || A > 180) return false;
+                if (faces[i] != 0 && faces[i] != 1) return false;
+            }
+            return true;
         }
 
         /// <summary>Règles de calage métier : flan mini pour former, pan porteur de retour, butée mini.</summary>
