@@ -36,21 +36,13 @@ namespace SimulateurPliage.Pliage
         public bool CotesExterieures = false;
         public List<double> Segments = new();    // NbPlis + 1 pans
 
-        // ---- FORME CIBLE : ce qu'on veut obtenir, indépendamment de l'ordre ----
-        // La séquence, c'est le CHEMIN ; la forme, c'est la DESTINATION. Les mélanger empêche
-        // le solveur de travailler : il doit lire la forme et PRODUIRE l'ordre. Avec les seules
-        // longueurs, 30/25/25/10 peut donner une coiffe comme un escargot.
+        // ---- FORME CIBLE (un par pli) : le solveur la lit et produit la séquence ----
 
-        /// <summary>Angle intérieur visé de chaque ligne de pli (180 = reste à plat). Un par pli.</summary>
+        /// <summary>Angle intérieur visé. 180 = reste à plat.</summary>
         public List<double> Angles = new();
 
-        /// <summary>
-        /// Face de la tôle qui est DESSUS quand on fait ce pli. Un par pli.
-        /// false = face de référence (FNL, non laquée) · true = face opposée (FL, laquée).
-        /// C'est ELLE qui définit la forme : deux plis sur la même face tournent dans le même
-        /// sens, deux plis sur des faces opposées tournent à l'inverse. Les retournements ne
-        /// sont donc pas un choix libre — ils sont imposés par la forme, et le solveur les déduit.
-        /// </summary>
+        /// <summary>Face dessus au moment du pli. false = FNL (référence) · true = FL.
+        /// Même face = même sens de virage. C'est ça qui fait la forme.</summary>
         public List<bool> Faces = new();
 
         public List<Operation> Sequence = new();
@@ -73,11 +65,8 @@ namespace SimulateurPliage.Pliage
             Segments[i] = CotesExterieures ? Math.Max(0, r) + Epaisseur : Math.Max(0, r);
         }
 
-        /// <summary>
-        /// Garantit une entrée d'Angles et de Faces par pli. Rétro-compatible : les pièces
-        /// d'avant (démos, fichiers déjà enregistrés) n'ont qu'une séquence — on en DÉDUIT
-        /// leur forme, rien n'est perdu. Une séquence existante fait toujours foi.
-        /// </summary>
+        /// <summary>Une entrée d'Angles et de Faces par pli. Si une séquence existe
+        /// (démo, fichier ancien), elle fait foi : on en déduit la forme.</summary>
         public void AssurerForme()
         {
             int n = NbPlis;
@@ -214,23 +203,13 @@ namespace SimulateurPliage.Pliage
         }
 
         /// <summary>
-        /// Couvertine de référence : pince 10 · jambe 30 · fond 230 · jambe 30 · goutte d'eau 10.
-        /// Pièce courante de chantier, cotes et gamme données par Weapon — elle FAIT FOI.
+        /// Couvertine de chantier — cotes et gamme de Weapon, elles FONT FOI.
+        /// pince 10 · jambe 30 · fond 230 · jambe 30 · goutte d'eau 10
         ///
-        /// Développé et forme :
-        ///   pli 1 (le 10)  ·  45°  FNL   la pince, elle grippe
-        ///   pli 2 (le 30)  ·  92°  FNL   jambe côté pince, un poil ouverte
-        ///   pli 3 (le 30)  ·  88°  FNL   jambe opposée, un poil fermée
-        ///   pli 4 (le 10)  · 163°  FL    la goutte d'eau : à peine cassée, l'eau décroche
-        ///
-        /// Gamme opérateur, dans l'ordre — butées 10 · 30 · 10 · 30 :
-        ///   1) le 10 à 45°   FNL, on pousse                    → prise 300
-        ///   2) le 30 à 92°   FNL, appui sur le pli 1           → prise 270
-        ///   3) ⇅ on retourne la tôle sur elle-même, le 10 à 163° FL  → prise 300
-        ///   4) ⇅ on retourne encore, le 30 à 88° FNL, appui sur le pli de l'op 3 → prise 270
-        ///
-        /// La prise ne descend jamais sous 270 : le grand côté reste toujours en main.
-        /// Le solveur retrouve cette gamme en #1 sur les 30 qu'il propose, sans qu'on l'aide.
+        ///   op1  le 10  ·  45°  FNL              butée 10 · prise 300
+        ///   op2  le 30  ·  92°  FNL, appui pli 1 butée 30 · prise 270
+        ///   op3  le 10  · 163°  FL  ⇅            butée 10 · prise 300
+        ///   op4  le 30  ·  88°  FNL ⇅, appui op3 butée 30 · prise 270
         /// </summary>
         public static Piece DemoCouvertine()
         {

@@ -57,13 +57,8 @@ namespace SimulateurPliage.Pliage
             int gardeFou = 0;
             int masque = 0;                                  // plis déjà faits, en bits
 
-            // La géométrie d'une étape ne dépend QUE de : quels plis sont déjà faits, lequel on
-            // plie, la parité, et le sens d'engagement. PAS de l'ORDRE dans lequel on les a
-            // faits — une pièce ne se souvient pas du chemin, seulement de sa forme.
-            // Or le DFS retombe sur les mêmes états par des milliers de chemins différents et
-            // rappelait Moteur.Construire à chaque fois : à 6 plis, des centaines de milliers
-            // d'appels pour quelques milliers d'états réels. On mémorise le verdict.
-            // Complexité : n! × 2^n → 2^n × n × 4.
+            // Mémoïsation : la géométrie d'une étape dépend de QUELS plis sont faits, pas de
+            // l'ORDRE. Même état, même verdict. n! × 2^n -> 2^n × n × 4 (×19 mesuré).
             var vu = new Dictionary<int, bool>(4096);
 
             void Dfs(int nbFaits, int parite, int retournes)
@@ -150,14 +145,8 @@ namespace SimulateurPliage.Pliage
             // 1. former : les deux pans au pli doivent couvrir l'épaule du vé
             if (amont < epaule || avalPan < epaule) return false;
 
-            // Il y avait ici une règle « un pan qui porte un retour déjà plié doit faire 25 mini ».
-            // ENLEVÉE. Elle venait d'une seule phrase de Weapon — « si on a déjà un pli de 10 à
-            // 45, faut 25 mini au pli » — que j'avais généralisée à TOUT pan portant N'IMPORTE
-            // quel retour, à N'IMPORTE quel angle. Un retour de 10 à 170° est quasi à plat et ne
-            // gêne personne : elle le refusait quand même.
-            // Le détecteur trouve la règle tout seul, et mieux : deux retours de 10 sont refusés
-            // à 45/60/90° (ça tape) et passent à 120/150/170° (ça dépasse plus). Sur le chevêtre
-            // et le Z, la règle ne changeait strictement rien. La géométrie sait, on la laisse dire.
+            // Pas de règle « 25 mini sur un pan qui porte un retour » : le détecteur la trouve
+            // tout seul et mieux (deux 10 refusés à 45/60/90, acceptés à 120/150/170).
 
             // 3. caler en butée : le pan lu (amont, ou aval si bout pour bout) >= butée mini,
             //    avec la même tolérance que le Detecteur (un pan de 10 se cale en vrai).
