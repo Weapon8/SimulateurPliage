@@ -131,10 +131,18 @@ namespace SimulateurPliage.Vues
                 i => { piece.CotesExterieures = i == 1; Recalculer(); });
 
             y = Titre(gauche, "PANS (longueurs mm)", y);
+            // RAPPEL, PAS SAISIE. Tout se tape au pupitre — c'est lui la CN. Cette grille
+            // n'est là que pour avoir la longueur, l'angle et la face CÔTE À CÔTE sous les yeux :
+            // personne ne pourra dire « j'avais pas vu ». Elle se met à jour toute seule à chaque
+            // édition du pupitre et après un ordre auto (vuePupitre.Edited -> ChargerPans).
+            // Tout est en lecture seule : deux endroits pour saisir la même cote, c'est deux
+            // endroits pour se tromper.
             dgPans = Grille(gauche, 150, ref y);
-            dgPans.Columns.Add(Col("pan", "Pan", 56, true));
-            dgPans.Columns.Add(Col("lg", "Longueur", 150, false));
-            dgPans.CellEndEdit += (s, e) => { if (!_load) { LirePans(); Recalculer(); } };
+            dgPans.Columns.Add(Col("pan", "Pan", 40, true));
+            dgPans.Columns.Add(Col("lg", "Longueur", 74, true));
+            dgPans.Columns.Add(Col("ang", "Angle", 52, true));
+            dgPans.Columns.Add(Col("face", "Face", 46, true));
+            dgPans.ReadOnly = true;
 
             // --- SYNCHRO PANS ↔ PUPITRE ---
             // coloriage : les pans qui bordent le pli sélectionné dans le pupitre
@@ -145,6 +153,16 @@ namespace SimulateurPliage.Vues
                 e.CellStyle.BackColor = sur ? Color.FromArgb(30, 52, 74) : Theme.Champ;
                 e.CellStyle.SelectionBackColor = sur ? Color.FromArgb(38, 62, 86) : Color.FromArgb(48, 56, 68);
                 e.CellStyle.ForeColor = sur ? Color.White : Theme.Texte;
+
+                // La face reprend le code couleur de la vue section : bleu = FNL, violet = FL.
+                // Le dernier pan n'a pas de pli après lui : gris.
+                string col = dgPans.Columns[e.ColumnIndex].Name;
+                string val = e.Value as string;
+                if (col == "face")
+                    e.CellStyle.ForeColor = val == "FL" ? Theme.ToleFL
+                                          : val == "FNL" ? Theme.Tole : Theme.Discret;
+                else if ((col == "ang" || col == "lg") && val == "—")
+                    e.CellStyle.ForeColor = Theme.Discret;
             };
             // clic sur un pan -> surligne les 2 plis qui le bordent (pli p-1 et pli p)
             dgPans.SelectionChanged += (s, e) =>
@@ -683,10 +701,19 @@ namespace SimulateurPliage.Vues
         void ChargerPans()
         {
             _load = true;
+            piece.AssurerForme();
             dgPans.Rows.Clear();
             for (int i = 0; i < piece.Segments.Count; i++)
-                dgPans.Rows.Add((i + 1).ToString(),
-                    piece.Segments[i].ToString("0.#", CultureInfo.InvariantCulture));
+            {
+                // ligne du pan i : l'angle et la face décrivent le pli QUI SUIT ce pan.
+                // Le dernier pan n'a pas de pli derrière lui.
+                bool aPli = i < piece.NbPlis && i < piece.Angles.Count && i < piece.Faces.Count;
+                dgPans.Rows.Add(
+                    (i + 1).ToString(),
+                    piece.Segments[i].ToString("0.#", CultureInfo.InvariantCulture),
+                    aPli ? piece.Angles[i].ToString("0.#", CultureInfo.InvariantCulture) + "\u00B0" : "—",
+                    aPli ? (piece.Faces[i] ? "FL" : "FNL") : "—");
+            }
             if (nNbPlis != null)
                 nNbPlis.Value = Math.Min(nNbPlis.Maximum, Math.Max(nNbPlis.Minimum, (decimal)piece.NbPlis));
             _load = false;

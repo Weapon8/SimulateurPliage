@@ -35,6 +35,24 @@ namespace SimulateurPliage.Pliage
         public double Rm = 450;                  // N/mm² : acier 450, inox 600, alu 250, zinc 150
         public bool CotesExterieures = false;
         public List<double> Segments = new();    // NbPlis + 1 pans
+
+        // ---- FORME CIBLE : ce qu'on veut obtenir, indépendamment de l'ordre ----
+        // La séquence, c'est le CHEMIN ; la forme, c'est la DESTINATION. Les mélanger empêche
+        // le solveur de travailler : il doit lire la forme et PRODUIRE l'ordre. Avec les seules
+        // longueurs, 30/25/25/10 peut donner une coiffe comme un escargot.
+
+        /// <summary>Angle intérieur visé de chaque ligne de pli (180 = reste à plat). Un par pli.</summary>
+        public List<double> Angles = new();
+
+        /// <summary>
+        /// Face de la tôle qui est DESSUS quand on fait ce pli. Un par pli.
+        /// false = face de référence (FNL, non laquée) · true = face opposée (FL, laquée).
+        /// C'est ELLE qui définit la forme : deux plis sur la même face tournent dans le même
+        /// sens, deux plis sur des faces opposées tournent à l'inverse. Les retournements ne
+        /// sont donc pas un choix libre — ils sont imposés par la forme, et le solveur les déduit.
+        /// </summary>
+        public List<bool> Faces = new();
+
         public List<Operation> Sequence = new();
 
         [JsonIgnore] public int NbPlis => Math.Max(0, Segments.Count - 1);
@@ -53,6 +71,23 @@ namespace SimulateurPliage.Pliage
         {
             if (i < 0 || i >= Segments.Count) return;
             Segments[i] = CotesExterieures ? Math.Max(0, r) + Epaisseur : Math.Max(0, r);
+        }
+
+        /// <summary>
+        /// Garantit une entrée d'Angles et de Faces par pli. Rétro-compatible : les pièces
+        /// d'avant (démos, fichiers déjà enregistrés) n'ont qu'une séquence — on en DÉDUIT
+        /// leur forme, rien n'est perdu. Une séquence existante fait toujours foi.
+        /// </summary>
+        public void AssurerForme()
+        {
+            int n = NbPlis;
+            while (Angles.Count < n) Angles.Add(90);
+            while (Angles.Count > n) Angles.RemoveAt(Angles.Count - 1);
+            while (Faces.Count < n) Faces.Add(false);
+            while (Faces.Count > n) Faces.RemoveAt(Faces.Count - 1);
+
+            foreach (var o in Sequence)
+                if (o.Bend >= 0 && o.Bend < n) { Angles[o.Bend] = o.AngleCible; Faces[o.Bend] = o.Retournee; }
         }
 
         /// <summary>Garantit au moins nb lignes de pli (donc nb+1 pans).</summary>

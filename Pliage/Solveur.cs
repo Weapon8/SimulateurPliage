@@ -56,6 +56,16 @@ namespace SimulateurPliage.Pliage
             var faits = new bool[n];
             var seq = new List<(int bend, int face, bool aval)>();
             int gardeFou = 0;
+            int masque = 0;                                  // plis déjà faits, en bits
+
+            // La géométrie d'une étape ne dépend QUE de : quels plis sont déjà faits, lequel on
+            // plie, la parité, et le sens d'engagement. PAS de l'ORDRE dans lequel on les a
+            // faits — une pièce ne se souvient pas du chemin, seulement de sa forme.
+            // Or le DFS retombe sur les mêmes états par des milliers de chemins différents et
+            // rappelait Moteur.Construire à chaque fois : à 6 plis, des centaines de milliers
+            // d'appels pour quelques milliers d'états réels. On mémorise le verdict.
+            // Complexité : n! × 2^n → 2^n × n × 4.
+            var vu = new Dictionary<int, bool>(4096);
 
             void Dfs(int nbFaits, int parite, int retournes)
             {
@@ -68,18 +78,29 @@ namespace SimulateurPliage.Pliage
                     for (int f = 0; f < 2; f++)
                     {
                         bool aval = f == 1;
-                        double vOuv = VDe(matrice, vParPli, k);
-                        if (!CalageOk(segments, faits, k, aval, vOuv, buteeMini)) continue;
 
-                        var test = SousPiece(segments, epaisseur, seq, k, parite, aval, anglesParPli, vParPli);
-                        var etat = Moteur.Construire(test, test.Sequence.Count - 1, plieuse, poincon, matrice, embase);
-                        if (etat.Bloque) continue;               // collision bloquante → branche morte
+                        // état = (plis faits, pli actif, parité, sens). Même état, même verdict.
+                        int cle = (((masque * 16 + k) * 2 + parite) * 2) + (aval ? 1 : 0);
+                        if (!vu.TryGetValue(cle, out bool viable))
+                        {
+                            double vOuv = VDe(matrice, vParPli, k);
+                            viable = CalageOk(segments, faits, k, aval, vOuv, buteeMini);
+                            if (viable)
+                            {
+                                var test = SousPiece(segments, epaisseur, seq, k, parite, aval, anglesParPli, vParPli);
+                                var etat = Moteur.Construire(test, test.Sequence.Count - 1,
+                                                             plieuse, poincon, matrice, embase);
+                                viable = !etat.Bloque;          // collision bloquante → branche morte
+                            }
+                            vu[cle] = viable;
+                        }
+                        if (!viable) continue;
 
-                        faits[k] = true;
+                        faits[k] = true; masque |= 1 << k;
                         seq.Add((k, parite, aval));
                         Dfs(nbFaits + 1, parite, retournes);
                         seq.RemoveAt(seq.Count - 1);
-                        faits[k] = false;
+                        faits[k] = false; masque &= ~(1 << k);
                     }
                 }
 
@@ -92,7 +113,7 @@ namespace SimulateurPliage.Pliage
             }
 
             Dfs(0, 0, 0);                                        // départ face de référence
-            Array.Clear(faits, 0, n); seq.Clear();
+            Array.Clear(faits, 0, n); seq.Clear(); masque = 0;
             Dfs(0, 1, 0);                                        // départ face opposée (pose du flan libre)
 
             // dédoublonnage + tri
