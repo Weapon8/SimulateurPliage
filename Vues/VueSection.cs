@@ -49,9 +49,8 @@ namespace SimulateurPliage.Vues
 
             double ep = Math.Max(0.2, piece.Epaisseur);
             // Ancrage bissectrice : le sommet du pli est a l'origine, sous la pointe du
-            // poincon. On remonte la fibre neutre d'une demi-epaisseur : la SOUS-FACE de la
-            // tole pose alors sur la face matrice (y = 0) au lieu d'etre a moitie dans le bloc.
-            // Le poincon est deja dessine a +ep/2 : sa pointe touche la face haute. Coherent.
+            // On remonte la fibre neutre d'une demi-epaisseur : la SOUS-FACE de la tole pose
+            // alors sur la face matrice (y = 0) au lieu d'etre a moitie dans le bloc.
             double assise = ep / 2.0;
 
             var matriceC = matrice?.Contour(etat.Op.V);
@@ -60,12 +59,19 @@ namespace SimulateurPliage.Vues
 
             if (!Cadrer(g, ep, assise, matriceC, poinconC, hLibre)) return;
 
+            // Epaisseur DESSINEE : la vraie, mais jamais moins de EpaisseurMiniPx a l'ecran.
+            // Le poincon se pose DESSUS : sa pointe touche la face haute de la tole, pas son
+            // milieu. Avant il etait dessine a +ep/2 (la fibre neutre) alors que la tole etait
+            // epaissie a 1,8 mm : la pointe se retrouvait plantee dedans, et a 45° les deux
+            // ailes la recouvraient — la tole passait a cheval sur le bec.
+            double epVue = Math.Max(ep, EpaisseurMiniPx / Math.Max(sc, 1e-6));
+
             Grille(g);
             DessinerEmbases(g, ep, matriceC);
             if (matriceC != null) Polygone(g, matriceC, 0, Theme.Matrice, Color.FromArgb(110, 120, 132));
-            if (poinconC != null) Polygone(g, poinconC, ep / 2.0, Theme.Outil, Color.FromArgb(130, 138, 150));
+            if (poinconC != null) Polygone(g, poinconC, epVue, Theme.Outil, Color.FromArgb(130, 138, 150));
             HauteurLibre(g, hLibre);
-            DessinerTole(g, ep, assise);
+            DessinerTole(g, ep, assise, epVue);
             DessinerButee(g);
             DessinerSigles(g);
             Legende(g);
@@ -144,7 +150,7 @@ namespace SimulateurPliage.Vues
             g.DrawString($"hauteur libre {h:0}", f, new SolidBrush(Theme.Discret), 14, a.Y - 16);
         }
 
-        void DessinerTole(Graphics g, double ep, double assise)
+        void DessinerTole(Graphics g, double ep, double assise, double epVue)
         {
             var chaine = new List<Pt>();
             foreach (var p in etat.PanArriere) chaine.Add(new Pt(p.X, p.Y + assise));
@@ -160,14 +166,9 @@ namespace SimulateurPliage.Vues
                       : etat.Op.Retournee ? Theme.ToleFL
                       : Theme.Tole;
 
-            // La tole est un CORPS, pas un trait : remplissage + contour net, pour qu'on VOIE
-            // qu'elle pose sur l'outillage. L'ancien trait de 3 px peint par-dessus avalait le
-            // ruban et la faisait lire comme une ligne.
-            // Le champ fait ~230 mm de haut (poincon 150 + matrice 80) : 1 mm de tole y vaut
-            // 3 px. On garantit donc une epaisseur DESSINEE minimale, comme sur un plan de
-            // coupe. On epaissit vers le HAUT : la sous-face reste posee sur la face matrice
-            // (y = 0 grace a l'assise), jamais dans le bloc.
-            double epVue = Math.Max(ep, EpaisseurMiniPx / Math.Max(sc, 1e-6));
+            // La tole est un CORPS, pas un trait : remplissage + contour net. On epaissit vers
+            // le HAUT (epVue vient de l'appelant, le poincon est pose dessus) : la sous-face
+            // reste sur la face matrice, jamais dans le bloc.
             var inte = Offset(chaine, -ep / 2);                 // sous-face reelle
             var ext  = Offset(chaine, -ep / 2 + epVue);         // face haute, epaissie si besoin
 
