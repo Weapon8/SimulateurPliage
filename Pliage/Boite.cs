@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Text.Json;
 
 namespace SimulateurPliage.Pliage
 {
@@ -65,5 +67,39 @@ namespace SimulateurPliage.Pliage
 
         /// <summary>Les deux axes : huit plis en tout, quatre par axe.</summary>
         public List<Piece> Axes() => new() { Axe(true), Axe(false) };
+
+        /// <summary>
+        /// Lit le paregravier.settings.json écrit par l'outil PareGravier (Prima EX5).
+        /// On débite sur la Prima, on plie sur la Loire Safe — les deux doivent parler des
+        /// MÊMES cotes. Retaper les chiffres à la main, c'est une faute qui attend son tour.
+        /// Les champs inconnus (languettes, oblongs, faces) sont ignorés : ils regardent le
+        /// débit, pas le pliage.
+        /// </summary>
+        public static Boite Importer(string chemin, out string erreur)
+        {
+            erreur = null;
+            try
+            {
+                if (!File.Exists(chemin)) { erreur = "fichier introuvable"; return null; }
+                using var doc = JsonDocument.Parse(File.ReadAllText(chemin));
+                var r = doc.RootElement;
+                double D(string n, double def)
+                    => r.TryGetProperty(n, out var v) && v.TryGetDouble(out double d) ? d : def;
+
+                var b = new Boite
+                {
+                    L = D("L", 250), l = D("l", 250), H = D("H", 70), R = D("R", 20), E = D("E", 1.5),
+                    FoldAngle = D("FoldAngle", 92), RetombeeAngle = D("RetombeeAngle", 90)
+                };
+                if (b.L <= 0 || b.l <= 0 || b.H <= 0 || b.R <= 0 || b.E <= 0)
+                { erreur = "cotes invalides dans le fichier"; return null; }
+                return b;
+            }
+            catch (Exception ex) { erreur = ex.Message; return null; }
+        }
+
+        /// <summary>Chemin par défaut : PareGravier écrit à côté de son exe.</summary>
+        public static string CheminDefaut(string dossierPareGravier)
+            => Path.Combine(dossierPareGravier ?? "", "paregravier.settings.json");
     }
 }
