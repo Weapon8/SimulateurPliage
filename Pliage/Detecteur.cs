@@ -105,6 +105,23 @@ namespace SimulateurPliage.Pliage
             // Butée mini : la cote machine (10,2) est un relevé au réglet, pas une loi. Un pan
             // de 10 se cale en vrai, même en 4 mm — Weapon. On tolère 0,5 mm pour ne pas sortir
             // un faux positif sur une cote ronde. En dessous, l'alerte est légitime.
+            // PLANCHER D'ANGLE. En pliage en l'air on ne descend pas sous l'angle du VÉ : le
+            // poinçon bute au fond avant. Ni sous l'angle du BEC : les ailes de la tôle
+            // taperaient ses flancs. Le plancher, c'est le PLUS GRAND des deux.
+            // C'est parce que le Rolleri a un bec à 35° qu'il rentre dans un vé à 45° et sort
+            // le pli du Z. Le même 45° est impossible sur la 4 voies dont le V16 est à 88°.
+            // Sous le plancher, ce n'est plus du pliage en l'air : c'est un écrasement, en deux
+            // opérations avec un autre outil. Le simulateur ne doit pas laisser croire que ça
+            // passe d'un coup — il envoyait « propre » sur un pli à 10° dans un vé à 45°.
+            double angleVe = vf?.AngleDeg ?? 0;
+            double angleBec = poincon?.AngleDeg ?? 0;
+            double plancher = Math.Max(angleVe, angleBec);
+            if (plancher > 0 && st.Op.AngleCible < plancher - 0.01)
+                res.Add(new Collision("angle impossible",
+                    $"{st.Op.AngleCible:0.#}° visé < plancher {plancher:0.#}° "
+                    + (angleVe >= angleBec ? $"(vé à {angleVe:0.#}°)" : $"(bec à {angleBec:0.#}°)")
+                    + " — en l'air on ne descend pas plus bas", true));
+
             // Tonnage : la machine, puis l'outil. Dans les deux cas la sortie est la même —
             // OUVRIR LE VÉ. C'est le geste qui sauve la presse et le poinçon.
             double tpm;

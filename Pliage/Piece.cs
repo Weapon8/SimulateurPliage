@@ -212,6 +212,36 @@ namespace SimulateurPliage.Pliage
             p.Sequence.Add(new Operation { Bend = 0, AngleCible = 90, Sens = Sens.Haut, V = 16, Retournee = true });
             return p;
         }
+
+        /// <summary>
+        /// Couvertine de référence : pince 10 · jambe 30 · fond 230 · jambe 30 · goutte d'eau 10.
+        /// Pièce courante de chantier, cotes et gamme données par Weapon — elle FAIT FOI.
+        ///
+        /// Développé et forme :
+        ///   pli 1 (le 10)  ·  45°  FNL   la pince, elle grippe
+        ///   pli 2 (le 30)  ·  92°  FNL   jambe côté pince, un poil ouverte
+        ///   pli 3 (le 30)  ·  88°  FNL   jambe opposée, un poil fermée
+        ///   pli 4 (le 10)  · 163°  FL    la goutte d'eau : à peine cassée, l'eau décroche
+        ///
+        /// Gamme opérateur, dans l'ordre — butées 10 · 30 · 10 · 30 :
+        ///   1) le 10 à 45°   FNL, on pousse                    → prise 300
+        ///   2) le 30 à 92°   FNL, appui sur le pli 1           → prise 270
+        ///   3) ⇅ on retourne la tôle sur elle-même, le 10 à 163° FL  → prise 300
+        ///   4) ⇅ on retourne encore, le 30 à 88° FNL, appui sur le pli de l'op 3 → prise 270
+        ///
+        /// La prise ne descend jamais sous 270 : le grand côté reste toujours en main.
+        /// Le solveur retrouve cette gamme en #1 sur les 30 qu'il propose, sans qu'on l'aide.
+        /// </summary>
+        public static Piece DemoCouvertine()
+        {
+            var p = new Piece { Epaisseur = 1.0, Nom = "Couvertine 10·30·230·30·10" };
+            p.Segments.AddRange(new double[] { 10, 30, 230, 30, 10 });
+            p.Sequence.Add(new Operation { Bend = 0, AngleCible = 45,  Sens = Sens.Haut, V = 16 });
+            p.Sequence.Add(new Operation { Bend = 1, AngleCible = 92,  Sens = Sens.Haut, V = 16 });
+            p.Sequence.Add(new Operation { Bend = 3, AngleCible = 163, Sens = Sens.Haut, V = 16, ButeeAval = true, Retournee = true });
+            p.Sequence.Add(new Operation { Bend = 2, AngleCible = 88,  Sens = Sens.Haut, V = 16, ButeeAval = true });
+            return p;
+        }
     }
 
     /// <summary>Une collision détectée à une étape.</summary>

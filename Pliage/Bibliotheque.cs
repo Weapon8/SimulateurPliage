@@ -79,6 +79,7 @@ namespace SimulateurPliage.Pliage
             bool ajout = false;
             ajout |= Injecter(Piece.Demo(), "Chevêtre 20·40·100·40·20");
             ajout |= Injecter(Piece.DemoZLaque(), "Z laqué 30·25·25·10");
+            ajout |= Injecter(Piece.DemoCouvertine(), "Couvertine 10·30·230·30·10");
             if (ajout)
             {
                 Profils.Sort((a, c) =>

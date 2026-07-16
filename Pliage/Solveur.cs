@@ -35,7 +35,6 @@ namespace SimulateurPliage.Pliage
     public static class Solveur
     {
         // --- règles de calage (cotes atelier, à ajuster) ---
-        public const double RetourAdjMini = 25.0;   // un pan qui PORTE un retour déjà plié : 25 mm mini
         public const double MargeEpaule   = 0.0;    // marge en plus de V/2 pour qu'un flan se forme
 
         /// <summary>
@@ -151,9 +150,14 @@ namespace SimulateurPliage.Pliage
             // 1. former : les deux pans au pli doivent couvrir l'épaule du vé
             if (amont < epaule || avalPan < epaule) return false;
 
-            // 2. un pan qui porte un retour DÉJÀ plié (pli voisin fait) doit faire 25 mini
-            if (k + 1 < n && faits[k + 1] && avalPan < RetourAdjMini) return false;
-            if (k - 1 >= 0 && faits[k - 1] && amont < RetourAdjMini) return false;
+            // Il y avait ici une règle « un pan qui porte un retour déjà plié doit faire 25 mini ».
+            // ENLEVÉE. Elle venait d'une seule phrase de Weapon — « si on a déjà un pli de 10 à
+            // 45, faut 25 mini au pli » — que j'avais généralisée à TOUT pan portant N'IMPORTE
+            // quel retour, à N'IMPORTE quel angle. Un retour de 10 à 170° est quasi à plat et ne
+            // gêne personne : elle le refusait quand même.
+            // Le détecteur trouve la règle tout seul, et mieux : deux retours de 10 sont refusés
+            // à 45/60/90° (ça tape) et passent à 120/150/170° (ça dépasse plus). Sur le chevêtre
+            // et le Z, la règle ne changeait strictement rien. La géométrie sait, on la laisse dire.
 
             // 3. caler en butée : le pan lu (amont, ou aval si bout pour bout) >= butée mini,
             //    avec la même tolérance que le Detecteur (un pan de 10 se cale en vrai).
