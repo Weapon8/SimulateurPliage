@@ -6,9 +6,9 @@
 Fait pour la plieuse **Loire Safe 4 m**, poinçon **Rolleri P.150.35.R2**, matrices Euram.
 Toutes les cotes machine et outillage sont ajustables dans l'app.
 
-> Le but n'est pas de remplacer le plieur. C'est de donner à un intérimaire, un apprenti ou un
-> chef en reconversion l'ordre de pliage qu'un gars de 26 ans de métier trouve d'instinct —
-> et de le prévenir quand il va avoir les doigts près du bec.
+> Le but n'est pas de remplacer le plieur. C'est de donner à quelqu'un qui débute l'ordre de
+> pliage qu'un plieur expérimenté trouve d'instinct — et de le prévenir quand il va avoir les
+> doigts près du bec.
 
 ---
 
