@@ -40,8 +40,9 @@ namespace SimulateurPliage.Vues
         VueSection vueSection;
         VueDeveloppe vueDeveloppe;
         VuePupitre vuePupitre;
+        VueVolume vue3D;
         TrackBar tbEtape;
-        Button ongletPupitre, ongletSection, ongletDeveloppe;
+        Button ongletPupitre, ongletSection, ongletDeveloppe, onglet3D;
         Label lblEtape, lblAlerte;
         RichTextBox rtSequence;
         Panel zoneDroite;
@@ -103,6 +104,7 @@ namespace SimulateurPliage.Vues
             {
                 plieuse = atelier.Plieuses[i];
                 vueSection.Outillage(plieuse, poincon, matrice, atelier.Embase);
+                vue3D.Outillage(plieuse, poincon, matrice, atelier.Embase);
                 Recalculer();
             });
 
@@ -112,6 +114,7 @@ namespace SimulateurPliage.Vues
                 poincon = atelier.Poincons[i];
                 if (nHauteurPoincon != null) { _load = true; nHauteurPoincon.Value = (decimal)poincon.Hauteur; _load = false; }
                 vueSection.Outillage(plieuse, poincon, matrice, atelier.Embase);
+                vue3D.Outillage(plieuse, poincon, matrice, atelier.Embase);
                 Recalculer();
             });
             cbMatrice = Combo(gauche, "Matrice", Noms(atelier.Matrices),
@@ -119,6 +122,7 @@ namespace SimulateurPliage.Vues
             {
                 matrice = atelier.Matrices[i];
                 vueSection.Outillage(plieuse, poincon, matrice, atelier.Embase);
+                vue3D.Outillage(plieuse, poincon, matrice, atelier.Embase);
                 Recalculer();
             });
 
@@ -230,6 +234,7 @@ namespace SimulateurPliage.Vues
             {
                 poincon.Hauteur = v;
                 vueSection.Outillage(plieuse, poincon, matrice, atelier.Embase);
+                vue3D.Outillage(plieuse, poincon, matrice, atelier.Embase);
                 Recalculer();
             });
 
@@ -296,9 +301,11 @@ namespace SimulateurPliage.Vues
             ongletPupitre   = Onglet("Pupitre", 92, () => Vue(0));
             ongletSection   = Onglet("Section", 92, () => Vue(1));
             ongletDeveloppe = Onglet("Développé", 100, () => Vue(2));
+            onglet3D        = Onglet("3D", 60, () => Vue(3));
             onglets.Controls.Add(ongletPupitre);
             onglets.Controls.Add(ongletSection);
             onglets.Controls.Add(ongletDeveloppe);
+            onglets.Controls.Add(onglet3D);
 
             var navig = new Panel { Dock = DockStyle.Left, Width = 330, BackColor = Theme.Panneau };
             barre.Controls.Add(navig);
@@ -328,12 +335,15 @@ namespace SimulateurPliage.Vues
             vuePupitre = new VuePupitre { Dock = DockStyle.Fill };
             vueSection = new VueSection { Dock = DockStyle.Fill, Visible = false };
             vueDeveloppe = new VueDeveloppe { Dock = DockStyle.Fill, Visible = false };
+            vue3D        = new VueVolume { Dock = DockStyle.Fill, Visible = false };
             zoneDroite.Controls.Add(vuePupitre);
             zoneDroite.Controls.Add(vueSection);
             zoneDroite.Controls.Add(vueDeveloppe);
+            zoneDroite.Controls.Add(vue3D);
             vuePupitre.BringToFront();
             MajOnglets(0);
             vueSection.Outillage(plieuse, poincon, matrice, atelier.Embase);
+                vue3D.Outillage(plieuse, poincon, matrice, atelier.Embase);
 
             vuePupitre.Edited += () => { ChargerPans(); Recalculer(); };
             vuePupitre.StepPicked += r => AllerEtape(r);
@@ -351,9 +361,11 @@ namespace SimulateurPliage.Vues
             vuePupitre.Visible = i == 0;
             vueSection.Visible = i == 1;
             vueDeveloppe.Visible = i == 2;
+            vue3D.Visible = i == 3;
             if (i == 0) vuePupitre.BringToFront();
             else if (i == 1) vueSection.BringToFront();
-            else vueDeveloppe.BringToFront();
+            else if (i == 2) vueDeveloppe.BringToFront();
+            else vue3D.BringToFront();
             MajOnglets(i);
         }
 
@@ -773,6 +785,7 @@ namespace SimulateurPliage.Vues
         {
             var etat = Moteur.Construire(piece, etape, plieuse, poincon, matrice, atelier.Embase);
             vueSection.Afficher(etat, piece);
+            vue3D.Afficher(etat, piece);
             vueDeveloppe.Afficher(piece, etape);
 
             if (piece.Sequence.Count == 0)
