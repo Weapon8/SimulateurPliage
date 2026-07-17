@@ -10,7 +10,13 @@ namespace SimulateurPliage.Pliage
     /// </summary>
     public static class Detecteur
     {
-        /// <summary>Tolérance sur la butée mini : un pan de 10 passe face à une cote machine de 10,2.</summary>
+        /// <summary>
+        /// Tolérance sur les COTES DE PAN. Weapon programme rond : il tape 10 là où le pan
+        /// fait 10,2 en vrai. Sans elle, la butée mini (10,2) ET l'aile mini (0,63 × 16 =
+        /// 10,08) rejettent toutes les deux un pan de 10 — donc le Z laqué et la couvertine,
+        /// deux pièces réellement produites. Même cause, même tolérance : ce n'est pas un
+        /// rustine sur la machine, c'est l'écart entre la cote programmée et la cote réelle.
+        /// </summary>
         public const double TolButee = 0.5;
 
         /// <summary>
@@ -137,6 +143,45 @@ namespace SimulateurPliage.Pliage
                 && st.ButeeDistance < plieuse.ButeeMin - TolButee)
                 res.Add(new Collision("butée arrière",
                     $"pan de {st.ButeeDistance:0} mm < butée mini {plieuse.ButeeMin:0.#} mm", false));
+
+            // AILE MINI. En pliage en l'air, une aile qui n'atteint plus les épaulements du vé
+            // bascule DEDANS au lieu de se relever. Le plancher est le PLUS GRAND de deux
+            // contraintes qui n'ont rien à voir :
+            //   - le vé          0,63 × V  — géométrique, mord sur les GROS vés (V50 -> 31,5)
+            //   - la butée mini  10,2      — machine, mord sur les PETITS (V16 -> 0,63×V = 10,08)
+            // En V16 c'est la butée qui limite, pas le vé : à 0,08 mm près ils disent pareil,
+            // et c'est une coïncidence — il ne faut pas en déduire que l'un remplace l'autre.
+            //
+            // On teste les DEUX pans qui bordent le pli. Le contrôle de butée ci-dessus ne
+            // regarde que le pan couché contre les doigts ; celui du CÔTÉ FORMAGE n'était vu
+            // par personne. Un 4 mm côté opérateur passait « propre ».
+            var bandeA = p.Bande(st.Op.Axe);
+            double plancherAile = Math.Max(0.63 * vOuv, plieuse?.ButeeMin ?? 0);
+            if (plancherAile > 0 && st.Op.Bend >= 0 && st.Op.Bend + 1 < bandeA.Segments.Count)
+            {
+                double a1 = bandeA.ButeeInt(st.Op.Bend);
+                double a2 = bandeA.ButeeInt(st.Op.Bend + 1);
+                double aile = Math.Min(a1, a2);
+                if (aile > 0 && aile < plancherAile - TolButee)
+                    res.Add(new Collision("aile mini",
+                        $"aile de {aile:0.#} mm < mini {plancherAile:0.#} mm "
+                        + (0.63 * vOuv >= (plieuse?.ButeeMin ?? 0)
+                             ? $"(0,63 × V{vOuv:0})" : $"(butée mini {plieuse.ButeeMin:0.#})")
+                        + " — elle bascule dans le vé", true));
+            }
+
+            // LONGUEUR DE PLI. Cotes relevées sur machine et présentes dans le preset depuis
+            // le début, mais que personne ne relisait : un pli de 5000 sur une machine de 4050
+            // sortait « propre ».
+            if (plieuse != null && p.LongueurPli > 0)
+            {
+                if (plieuse.LongPliMax > 0 && p.LongueurPli > plieuse.LongPliMax)
+                    res.Add(new Collision("longueur de pli",
+                        $"{p.LongueurPli:0} mm > {plieuse.LongPliMax:0} mm admissibles sur {plieuse.Nom}", true));
+                else if (plieuse.LongPliMin > 0 && p.LongueurPli < plieuse.LongPliMin)
+                    res.Add(new Collision("longueur de pli",
+                        $"{p.LongueurPli:0} mm < {plieuse.LongPliMin:0} mm — pli trop court pour la machine", false));
+            }
 
             return res;
         }
