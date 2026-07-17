@@ -292,7 +292,11 @@ namespace SimulateurPliage.Vues
 
             var onglets = new FlowLayoutPanel
             {
-                Dock = DockStyle.Right, Width = 306, BackColor = Theme.Panneau,
+                // Largeur = la somme des onglets, marges comprises. WrapContents = false :
+                // un onglet qui ne rentre pas est dessine HORS du panneau, donc invisible —
+                // il existe, il est cliquable nulle part. Ajouter un onglet = elargir ici.
+                //   Pupitre 92+6 · Section 92+6 · Developpe 100+6 · 3D 60+6 = 368  (+8 padding)
+                Dock = DockStyle.Right, Width = 380, BackColor = Theme.Panneau,
                 Padding = new Padding(0, 9, 8, 0), Margin = new Padding(0),
                 FlowDirection = FlowDirection.LeftToRight, WrapContents = false
             };
