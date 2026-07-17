@@ -36,6 +36,9 @@ namespace SimulateurPliage.Pliage
             sb.AppendLine();
             Controler(sb, "COUVERTINE 10·30·230·30·10 (référence chantier)", Piece.DemoCouvertine(),
                       plieuse, poincon, matrice, embase, ref ok, ref ko);
+            sb.AppendLine();
+            Controler(sb, "PARE-GRAVIER 200×200×65", Boite.Demo().Piece(),
+                      plieuse, poincon, matrice, embase, ref ok, ref ko);
 
             string entete = ko == 0
                 ? "OK — " + ok + " contrôle(s) passé(s). Les règles tiennent.\r\n\r\n"
@@ -49,6 +52,13 @@ namespace SimulateurPliage.Pliage
                               ref int ok, ref int ko)
         {
             sb.AppendLine("=== " + nom + " ===");
+
+            // Une pièce COMPLEXE porte plusieurs axes : on les contrôle tous. Une boîte, c'est
+            // quatre plis, on tourne la pièce d'un quart de tour, quatre plis.
+            var axes = p.TousLesAxes();
+            for (int ax = 1; ax < axes.Count; ax++)
+                Controler(sb, nom + " · axe " + (ax + 1), axes[ax], plieuse, poincon, matrice, embase, ref ok, ref ko);
+            if (p.Complexe) sb.AppendLine("  axe 1 :");
 
             for (int e = 0; e < p.Sequence.Count; e++)
             {

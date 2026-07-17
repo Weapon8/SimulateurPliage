@@ -69,6 +69,18 @@ namespace SimulateurPliage.Pliage
         public List<Piece> Axes() => new() { Axe(true), Axe(false) };
 
         /// <summary>
+        /// La boîte en UNE pièce : l'axe X porte l'axe Y dans ses AxesSecondaires.
+        /// Une seule entrée en bibliothèque, un seul nom — c'est une pièce, pas deux.
+        /// </summary>
+        public Piece Piece()
+        {
+            var p = Axe(true);
+            p.Nom = Nom;
+            p.AxesSecondaires.Add(Axe(false));
+            return p;
+        }
+
+        /// <summary>
         /// Lit le paregravier.settings.json écrit par l'outil PareGravier (Prima EX5).
         /// On débite sur la Prima, on plie sur la Loire Safe — les deux doivent parler des
         /// MÊMES cotes. Retaper les chiffres à la main, c'est une faute qui attend son tour.
@@ -97,6 +109,13 @@ namespace SimulateurPliage.Pliage
             }
             catch (Exception ex) { erreur = ex.Message; return null; }
         }
+
+        /// <summary>
+        /// Boîte de référence : 200×200 H65, retombée 20, tout à 93°, ep 1.
+        /// Cotes données par Weapon — elles font foi.
+        /// </summary>
+        public static Boite Demo() => new()
+        { L = 200, l = 200, H = 65, R = 20, E = 1.0, FoldAngle = 93, RetombeeAngle = 93 };
 
         /// <summary>Chemin par défaut : PareGravier écrit à côté de son exe.</summary>
         public static string CheminDefaut(string dossierPareGravier)

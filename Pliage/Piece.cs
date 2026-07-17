@@ -47,6 +47,27 @@ namespace SimulateurPliage.Pliage
 
         public List<Operation> Sequence = new();
 
+        /// <summary>
+        /// PIÈCES COMPLEXES — les bandes des autres axes de pliage. Vide sur une pièce simple :
+        /// un profil de couverture n'a qu'un axe, tous ses plis sont parallèles.
+        /// Une boîte en a deux : quatre plis, on tourne la pièce d'un quart de tour, quatre plis.
+        /// Chaque axe est une bande complète, avec ses pans, ses angles et sa séquence.
+        /// Ils se calculent séparément : l'outillage est prismatique et segmentable, donc les
+        /// parois relevées d'un axe sortent du plan de section de l'autre et ne le gênent pas.
+        /// </summary>
+        public List<Piece> AxesSecondaires = new();
+
+        [JsonIgnore] public bool Complexe => AxesSecondaires.Count > 0;
+        [JsonIgnore] public int NbAxes => 1 + AxesSecondaires.Count;
+
+        /// <summary>Tous les axes, celui-ci d'abord. Une pièce simple se rend elle-même.</summary>
+        public List<Piece> TousLesAxes()
+        {
+            var l = new List<Piece> { this };
+            l.AddRange(AxesSecondaires);
+            return l;
+        }
+
         [JsonIgnore] public int NbPlis => Math.Max(0, Segments.Count - 1);
         [JsonIgnore] public double Developpe { get { double t = 0; foreach (var s in Segments) t += s; return t; } }
 
