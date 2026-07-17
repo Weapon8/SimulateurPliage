@@ -61,15 +61,25 @@ namespace SimulateurPliage.Pliage
             st.Op = p.Sequence[etape];
             var ang = AnglesA(p, etape, out var sens);
 
-            // Retournement dessus/dessous : la piece repose sur l'autre face, donc les plis
-            // DEJA FORMES pointent a l'oppose. Mais le pli ACTIF, lui, se fait toujours vers le
-            // haut (le poincon descend, la matrice tient) : son sens ne s'inverse JAMAIS avec le
-            // retournement. Inverser tout le monde repliait le volet actif dans le meme sens que
-            // le deja-plie -> spirale collee au poincon. On saute donc le pli actif.
-            if (st.Op.Retournee)
-                for (int i = 0; i < sens.Length; i++)
-                    if (i != st.Op.Bend)
-                        sens[i] = sens[i] == Sens.Haut ? Sens.Bas : Sens.Haut;
+            // LE SENS D'UN PLI DEPEND DE SA FACE — pas du drapeau de l'etape courante.
+            //
+            // Un pli forme sur la face opposee apparait INVERSE des qu'on revient sur la face de
+            // reference. L'ancien code ne regardait que st.Op.Retournee et inversait tout le
+            // monde ou personne : il ratait le cas d'un retournement SUIVI d'un re-retournement.
+            // La couvertine, precisement — le 10 a 163° fait en FL, puis on revient en FNL pour
+            // le 30 a 88° : a cette etape-la, le 163° etait dessine du mauvais cote. (Weapon)
+            //
+            // Le pli ACTIF, lui, monte toujours : la presse descend, la matrice tient.
+            int axeAct = st.Op.Axe;
+            for (int i = 0; i <= etape && i < p.Sequence.Count; i++)
+            {
+                var o = p.Sequence[i];
+                if (o.Axe != axeAct || o.Bend < 0 || o.Bend >= sens.Length) continue;
+                sens[o.Bend] = (o.Bend == st.Op.Bend)                 // le pli actif
+                             ? Sens.Haut
+                             : (o.Retournee == st.Op.Retournee)       // meme face qu'a cette etape ?
+                               ? Sens.Haut : Sens.Bas;
+            }
 
             var bande = p.Bande(st.Op.Axe);
             var chaine = Chaine(bande.Segments, ang, sens);
