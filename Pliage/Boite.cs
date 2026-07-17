@@ -137,7 +137,7 @@ namespace SimulateurPliage.Pliage
         }
 
         /// <summary>
-        /// Boîte de référence : 200×200 H65, retombée 20, tout à 93°, ep 1.
+        /// Boîte de référence : 200×200 H66, retombée 20, tout à 93°, ep 1.
         /// Cotes données par Weapon — elles font foi.
         /// </summary>
         public static Boite Demo() => new()
