@@ -36,9 +36,6 @@ namespace SimulateurPliage.Pliage
             sb.AppendLine();
             Controler(sb, "COUVERTINE 10·30·230·30·10 (référence chantier)", Piece.DemoCouvertine(),
                       plieuse, poincon, matrice, embase, ref ok, ref ko);
-            sb.AppendLine();
-            Controler(sb, "PARE-GRAVIER 200×200×66", Boite.Demo().Piece(),
-                      plieuse, poincon, matrice, embase, ref ok, ref ko);
 
             string entete = ko == 0
                 ? "OK — " + ok + " contrôle(s) passé(s). Les règles tiennent.\r\n\r\n"

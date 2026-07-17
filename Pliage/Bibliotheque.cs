@@ -70,22 +70,28 @@ namespace SimulateurPliage.Pliage
 
         /// <summary>
         /// Les pièces de RÉFÉRENCE de l'atelier, rangées sous le chantier « Références » :
-        /// le chevêtre et le Z laqué. Ce sont elles que l'autotest contrôle, et elles servent
-        /// d'étalon quand on doute d'une modif — elles doivent donc rester chargeables d'un
-        /// clic, toujours. On les réinjecte si elles manquent, sans rien toucher d'autre.
+        /// le chevêtre, le Z laqué et la couvertine. Ce sont elles que l'autotest contrôle, et
+        /// elles servent d'étalon quand on doute d'une modif — elles doivent donc rester
+        /// chargeables d'un clic, toujours. On les réinjecte si elles manquent, sans rien
+        /// toucher d'autre. Le pare-gravier en a été retiré : boîte 2 axes, hors périmètre.
         /// </summary>
         public void AssurerReferences()
         {
-            bool ajout = false;
-            ajout |= Injecter(Piece.Demo(), "Chevêtre 20·40·100·40·20");
-            ajout |= Injecter(Piece.DemoZLaque(), "Z laqué 30·25·25·10");
-            ajout |= Injecter(Piece.DemoCouvertine(), "Couvertine 10·30·230·30·10");
+            bool modif = false;
+            modif |= Injecter(Piece.Demo(), "Chevêtre 20·40·100·40·20");
+            modif |= Injecter(Piece.DemoZLaque(), "Z laqué 30·25·25·10");
+            modif |= Injecter(Piece.DemoCouvertine(), "Couvertine 10·30·230·30·10");
 
-            // Une boîte, c'est DEUX bandes — une par axe. On les range comme telles : c'est
-            // ce que l'opérateur plie, quatre plis puis quatre plis. Sur une boîte carrée les
-            // deux sont identiques ; sur une rectangulaire elles diffèrent.
-            ajout |= Injecter(Boite.Demo().Piece(), "Pare-gravier 200×200×66");
-            if (ajout)
+            // PIERRE TOMBALE — NE PAS RETIRER SANS RÉFLÉCHIR.
+            // Le pare-gravier a été retiré des références : hors périmètre plieuse.
+            // Mais Injecter() n'AJOUTE que — il n'enlève rien. Supprimer la ligne d'injection
+            // ne suffit donc pas : le profil reste dans le biblio.json déjà sauvé chez
+            // l'opérateur, et il le verrait encore alors qu'il n'est plus dans le binaire.
+            // C'est le même piège que Atelier.CURRENT_VERSION. Cette ligne le purge au
+            // démarrage ; elle doit rester tant que des biblio.json d'avant peuvent traîner.
+            modif |= RetirerReference("Pare-gravier 200×200×66");
+
+            if (modif)
             {
                 Profils.Sort((a, c) =>
                 {
@@ -97,6 +103,16 @@ namespace SimulateurPliage.Pliage
         }
 
         const string CHANTIER_REF = "Références";
+
+        /// <summary>
+        /// Retire une pièce de référence devenue hors périmètre. Strictement bornée au
+        /// chantier « Références » : une pièce que l'opérateur aurait nommée pareil dans SON
+        /// chantier ne doit pas disparaître. Rend true si quelque chose a bougé.
+        /// </summary>
+        bool RetirerReference(string nom)
+            => Profils.RemoveAll(x =>
+                   string.Equals(x.Nom, nom, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(x.Chantier ?? "", CHANTIER_REF, StringComparison.OrdinalIgnoreCase)) > 0;
 
         bool Injecter(Piece p, string nom)
         {
