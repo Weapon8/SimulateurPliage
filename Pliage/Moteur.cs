@@ -15,7 +15,11 @@ namespace SimulateurPliage.Pliage
         /// <summary>Angles intérieurs de chaque ligne après les étapes 0..etape.</summary>
         public static double[] AnglesA(Piece p, int etape, out Sens[] sens)
         {
-            int nb = p.NbPlis;
+            // Sur une pièce COMPLEXE, la séquence est globale et alterne les axes : les plis
+            // de l'axe Y ne courbent pas la bande X. On ne garde que ceux de l'axe actif.
+            int axe = (etape >= 0 && etape < p.Sequence.Count) ? p.Sequence[etape].Axe : 0;
+            var bande = p.Bande(axe);
+            int nb = bande.NbPlis;
             var ang = new double[Math.Max(0, nb)];
             sens = new Sens[Math.Max(0, nb)];
             for (int i = 0; i < nb; i++) { ang[i] = 180.0; sens[i] = Sens.Haut; }
@@ -23,6 +27,7 @@ namespace SimulateurPliage.Pliage
             for (int i = 0; i <= etape && i < p.Sequence.Count; i++)
             {
                 var op = p.Sequence[i];
+                if (op.Axe != axe) continue;                 // pli d'un autre axe : il ne courbe pas cette bande
                 if (op.Bend >= 0 && op.Bend < nb) { ang[op.Bend] = op.AngleCible; sens[op.Bend] = op.Sens; }
             }
             return ang;
@@ -66,7 +71,8 @@ namespace SimulateurPliage.Pliage
                     if (i != st.Op.Bend)
                         sens[i] = sens[i] == Sens.Haut ? Sens.Bas : Sens.Haut;
 
-            var chaine = Chaine(p.Segments, ang, sens);
+            var bande = p.Bande(st.Op.Axe);
+            var chaine = Chaine(bande.Segments, ang, sens);
 
             int sommet = st.Op.Bend + 1;
             if (sommet < 1 || sommet >= chaine.Count) return st;
@@ -91,7 +97,7 @@ namespace SimulateurPliage.Pliage
 
             // la butee lit le pan couche contre elle : l'amont, ou l'aval si rotation a plat
             int panButee = st.Op.ButeeAval ? st.Op.Bend + 1 : st.Op.Bend;
-            st.ButeeDistance = p.ButeeInt(Math.Min(panButee, p.Segments.Count - 1));
+            st.ButeeDistance = bande.ButeeInt(Math.Min(panButee, bande.Segments.Count - 1));
             st.Collisions = Detecteur.Analyser(st, p, plieuse, poincon, matrice, embase);
 
             // NB : en position de pose, le pli actif est encore à plat (180°). La tôle

@@ -29,7 +29,7 @@ namespace SimulateurPliage.Pliage
         // ---- mêmes noms et mêmes défauts que PareGravier.PareParams ----
         public double L = 250;                 // dessus, sens X
         public double l = 250;                 // dessus, sens Y
-        public double H = 70;                  // hauteur de paroi
+        public double H = 66;                  // hauteur de paroi (cote au pli)
         public double R = 20;                  // retombée / rabat de fixation
         public double E = 1.5;                 // épaisseur
         public double FoldAngle = 92;          // les 4 parois
@@ -74,9 +74,35 @@ namespace SimulateurPliage.Pliage
         /// </summary>
         public Piece Piece()
         {
-            var p = Axe(true);
-            p.Nom = Nom;
-            p.AxesSecondaires.Add(Axe(false));
+            var p = new Piece { Nom = Nom, Epaisseur = E, LongueurPli = l };
+            p.Segments.AddRange(new[] { R, H, L, H, R });                 // axe X
+
+            var y = new Piece { Nom = Nom + " · axe Y", Epaisseur = E, LongueurPli = L };
+            y.Segments.AddRange(new[] { R, H, l, H, R });                 // axe Y
+            p.AxesSecondaires.Add(y);
+
+            // UNE séquence de HUIT étapes, dans l'ordre de l'atelier (Weapon) :
+            //   « 1 pli de 20, rotation 90° à plat, sur les 4 plis — puis on retourne,
+            //     butée à 66, et idem : 1 pli, rotation 90°, pareil pour les 3 suivants. »
+            //
+            // On FAIT LE TOUR de la pièce : un quart de tour à plat entre chaque pli, quatre
+            // fois le même geste. D'où l'alternance X · Y · X · Y et pas X · X · Y · Y — celle-ci
+            // demanderait un 180°, puis un 90°, puis un 180°. Trois gestes différents au lieu d'un.
+            void Op(int axe, int bend, double ang, bool aval, bool ret)
+                => p.Sequence.Add(new Operation { Axe = axe, Bend = bend, AngleCible = ang,
+                                                  Sens = Sens.Haut, V = V, ButeeAval = aval, Retournee = ret });
+            //   les quatre rabats, sur le flan à plat — butée 20 à chaque fois
+            Op(0, 0, RetombeeAngle, false, false);   // 1  rabat  X+
+            Op(1, 0, RetombeeAngle, false, false);   // 2  rabat  Y+   ↻90
+            Op(0, 3, RetombeeAngle, true,  false);   // 3  rabat  X-   ↻90
+            Op(1, 3, RetombeeAngle, true,  false);   // 4  rabat  Y-   ↻90
+            //   on RETOURNE, et les quatre parois referment la boîte — butée 66
+            Op(0, 1, FoldAngle,     false, true);    // 5  paroi  X+   ⇅
+            Op(1, 1, FoldAngle,     false, true);    // 6  paroi  Y+   ↻90
+            Op(0, 2, FoldAngle,     true,  true);    // 7  paroi  X-   ↻90
+            Op(1, 2, FoldAngle,     true,  true);    // 8  paroi  Y-   ↻90
+
+            p.AssurerForme();      // traverse tous les axes
             return p;
         }
 
@@ -115,7 +141,7 @@ namespace SimulateurPliage.Pliage
         /// Cotes données par Weapon — elles font foi.
         /// </summary>
         public static Boite Demo() => new()
-        { L = 200, l = 200, H = 65, R = 20, E = 1.0, FoldAngle = 93, RetombeeAngle = 93 };
+        { L = 200, l = 200, H = 66, R = 20, E = 1.0, FoldAngle = 93, RetombeeAngle = 93 };
 
         /// <summary>Chemin par défaut : PareGravier écrit à côté de son exe.</summary>
         public static string CheminDefaut(string dossierPareGravier)

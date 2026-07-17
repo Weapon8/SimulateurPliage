@@ -84,7 +84,7 @@ namespace SimulateurPliage.Pliage
             // Une boîte, c'est DEUX bandes — une par axe. On les range comme telles : c'est
             // ce que l'opérateur plie, quatre plis puis quatre plis. Sur une boîte carrée les
             // deux sont identiques ; sur une rectangulaire elles diffèrent.
-            ajout |= Injecter(Boite.Demo().Piece(), "Pare-gravier 200×200×65");
+            ajout |= Injecter(Boite.Demo().Piece(), "Pare-gravier 200×200×66");
             if (ajout)
             {
                 Profils.Sort((a, c) =>

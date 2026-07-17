@@ -335,12 +335,23 @@ namespace SimulateurPliage.Vues
             //
             // Et a la premiere etape il n'y a rien avant : c'est le depart du pliage, on presente
             // la tole comme on veut. Pas de sigle.
+            //   ↻ QUART DE TOUR a plat : on change d'AXE de pliage. Sur une boite on fait le
+            //     tour de la piece — un quart de tour entre chaque pli, quatre fois de suite.
+            //     Il remplace le ⇄ : tourner de 90° amene deja l'autre bout a la butee.
             Operation prec = (etat.Etape > 0 && etat.Etape - 1 < piece.Sequence.Count)
                              ? piece.Sequence[etat.Etape - 1] : null;
             bool bouts = prec != null && etat.Op.ButeeAval != prec.ButeeAval;
             bool face  = prec != null && etat.Op.Retournee != prec.Retournee;
-            bool aPlat = bouts && !face;
+            bool quart = prec != null && etat.Op.Axe != prec.Axe && !face;
+            bool aPlat = bouts && !face && !quart;
 
+            if (quart)
+            {
+                SigleQuart(g, x + 10, y + 10, CBlue);
+                using var b = new SolidBrush(CBlue);
+                g.DrawString("quart de tour à plat (axe " + (etat.Op.Axe == 0 ? "X" : "Y") + ")", f, b, x + 26, y + 3);
+                y += 24;
+            }
             if (aPlat)
             {
                 SigleAPlat(g, x + 10, y + 10, CBlue);
@@ -374,6 +385,16 @@ namespace SimulateurPliage.Vues
             using var pn = new Pen(c, 2f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
             Fleche(g, pn, cx - 9, cy, cx + 3, cy);
             g.DrawLine(pn, cx + 7, cy - 6, cx + 7, cy + 6);   // le doigt de butee
+        }
+
+        /// <summary>↻ : quart de tour a plat — un arc avec sa pointe.</summary>
+        static void SigleQuart(Graphics g, float cx, float cy, Color c)
+        {
+            using var pn = new Pen(c, 2f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+            g.DrawArc(pn, cx - 8, cy - 8, 16, 16, 40, 260);
+            float ax = cx + 8f * (float)Math.Cos(40 * Math.PI / 180);
+            float ay = cy + 8f * (float)Math.Sin(40 * Math.PI / 180);
+            Fleche(g, pn, ax - 5, ay - 4, ax, ay);
         }
 
         /// <summary>⇄ : deux fleches horizontales opposees.</summary>

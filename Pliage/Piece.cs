@@ -23,6 +23,14 @@ namespace SimulateurPliage.Pliage
         public bool Reprise;              // pli en plusieurs passes
         public bool ButeeAval;            // rotation 180° À PLAT (bout pour bout) : la butée lit le pan aval
         public bool Retournee;            // retournement DESSUS/DESSOUS : les plis déjà faits pointent en bas
+
+        /// <summary>
+        /// Axe de pliage. 0 = la bande principale · 1+ = AxesSecondaires[Axe-1].
+        /// Toujours 0 sur une pièce simple. Une boîte a UNE séquence de huit étapes qui
+        /// alterne les deux axes — c'est ce que l'opérateur fait : quatre plis, on tourne
+        /// la pièce d'un quart de tour, quatre plis.
+        /// </summary>
+        public int Axe;
     }
 
     /// <summary>La tôle : ses pans, son épaisseur, sa séquence de pliage.</summary>
@@ -60,6 +68,27 @@ namespace SimulateurPliage.Pliage
         [JsonIgnore] public bool Complexe => AxesSecondaires.Count > 0;
         [JsonIgnore] public int NbAxes => 1 + AxesSecondaires.Count;
 
+        /// <summary>
+        /// Plis de TOUTE la pièce, tous axes confondus — une boîte en a HUIT. À afficher
+        /// partout où l'opérateur lit « nombre de plis ». NbPlis, lui, compte les plis de
+        /// CETTE bande : c'est le moteur qui s'en sert, il doit rester local à l'axe.
+        /// </summary>
+        [JsonIgnore]
+        public int NbPlisTotal
+        { get { int n = NbPlis; foreach (var a in AxesSecondaires) n += a.NbPlis; return n; } }
+
+        /// <summary>Développé de TOUTE la pièce, tous axes confondus.</summary>
+        [JsonIgnore]
+        public double DeveloppeTotal
+        { get { double t = Developpe; foreach (var a in AxesSecondaires) t += a.Developpe; return t; } }
+
+        /// <summary>
+        /// La bande d'un axe. 0 = celle-ci. Hors bornes -> celle-ci, pour ne jamais planter
+        /// sur une séquence abîmée.
+        /// </summary>
+        public Piece Bande(int axe)
+            => (axe <= 0 || axe > AxesSecondaires.Count) ? this : AxesSecondaires[axe - 1];
+
         /// <summary>Tous les axes, celui-ci d'abord. Une pièce simple se rend elle-même.</summary>
         public List<Piece> TousLesAxes()
         {
@@ -90,14 +119,26 @@ namespace SimulateurPliage.Pliage
         /// (démo, fichier ancien), elle fait foi : on en déduit la forme.</summary>
         public void AssurerForme()
         {
-            int n = NbPlis;
-            while (Angles.Count < n) Angles.Add(90);
-            while (Angles.Count > n) Angles.RemoveAt(Angles.Count - 1);
-            while (Faces.Count < n) Faces.Add(false);
-            while (Faces.Count > n) Faces.RemoveAt(Faces.Count - 1);
+            Dimensionner(this);
+            foreach (var a in AxesSecondaires) Dimensionner(a);
 
+            // La séquence est GLOBALE : chaque opération dit son axe. Sans ce tri, les plis de
+            // l'axe Y viendraient écraser la forme de l'axe X — ils n'ont rien à y faire.
             foreach (var o in Sequence)
-                if (o.Bend >= 0 && o.Bend < n) { Angles[o.Bend] = o.AngleCible; Faces[o.Bend] = o.Retournee; }
+            {
+                var b = Bande(o.Axe);
+                if (o.Bend >= 0 && o.Bend < b.NbPlis)
+                { b.Angles[o.Bend] = o.AngleCible; b.Faces[o.Bend] = o.Retournee; }
+            }
+
+            static void Dimensionner(Piece b)
+            {
+                int n = b.NbPlis;
+                while (b.Angles.Count < n) b.Angles.Add(90);
+                while (b.Angles.Count > n) b.Angles.RemoveAt(b.Angles.Count - 1);
+                while (b.Faces.Count < n) b.Faces.Add(false);
+                while (b.Faces.Count > n) b.Faces.RemoveAt(b.Faces.Count - 1);
+            }
         }
 
         /// <summary>Garantit au moins nb lignes de pli (donc nb+1 pans).</summary>
