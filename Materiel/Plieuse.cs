@@ -22,7 +22,15 @@ namespace SimulateurPliage.Materiel
 
         // Bâti.
         public double Arcade = 3000;        // passage latéral entre montants
-        public double HauteurLibre = 120;   // garde verticale ouverte
+        // TABLIER (le HAUT mobile : coulisseau + inter + poinçon). Le bas (bâti + support
+        // matrice) est fixe = référence y=0 sur la face matrice.
+        // Garde utile mesurée sur la Loire Safe : du BOUT DU BEC au bas du tablier = 280 mm.
+        // Une aile formée qui remonte au-delà tape le tablier -> tôle + machine bousillées.
+        // (Développés d'1 m, ailes de 300 : ça arrive en prod, ce n'est pas un cas d'école.)
+        public double TablierHauteur = 280;   // bas du tablier au-dessus de la face matrice (mm)
+        // Le bâti/tablier déborde de 66 mm de PART ET D'AUTRE du bloc matrice (Loire Safe).
+        public double TablierDebord = 66;     // débord latéral au-delà du bloc matrice (mm/côté)
+        public double HauteurLibre = 120;   // garde verticale ouverte (héritée, non utilisée)
         public double TablierDeport = 50;
 
         // À mesurer sur machine.

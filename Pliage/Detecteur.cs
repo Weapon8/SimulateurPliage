@@ -67,6 +67,8 @@ namespace SimulateurPliage.Pliage
                     semelle = Rect(-embase.SemelleLg / 2, dieBas - embase.SemelleH, embase.SemelleLg / 2, dieBas);
             }
 
+
+
             // Zone morte : autour de la pointe, dans le vé, la tôle est en cours de formage.
             double zoneX = vOuv / 2.0 + ep + 4;
             double zoneY = ep + 6;
@@ -100,6 +102,22 @@ namespace SimulateurPliage.Pliage
             if (hitM) res.Add(new Collision("matrice", "la tôle tape la matrice", true));
             if (hitPP) res.Add(new Collision("porte-poinçon", "un retour touche l'embase du poinçon", true));
             if (hitSem) res.Add(new Collision("semelle", "la pièce touche la semelle", true));
+            // TABLIER — collision par HAUTEUR VERTICALE VRAIE des ailes déjà formées.
+            // On ne peut PAS tester le tablier dans le repère bissectrice (il pivote avec le
+            // pli, une aile verticale y apparaît à 45°) : on calcule la vraie élévation de
+            // chaque pan au-dessus de la face matrice, monde vertical. Un pan de longueur L
+            // relevé d'un angle de pli 'a' (180=plat) monte de L·sin(180−a). Marge de flexion :
+            // le tablier fléchit de 1–2 mm sous charge (montants), donc on garde 5 mm de sûreté
+            // pour ne pas valider une aile qui passe de justesse à l'écran mais tape en vrai.
+            if (plieuse != null && plieuse.TablierHauteur > 0)
+            {
+                double garde = plieuse.TablierHauteur - 5.0;   // marge de flexion
+                double hmax = HauteurAilesFormees(st, p);
+                if (hmax > garde)
+                    res.Add(new Collision("tablier",
+                        $"une aile formée monte à {hmax:0} mm et tape le tablier "
+                        + $"(garde {plieuse.TablierHauteur:0} mm)", true));
+            }
 
             if (ReplieSurElleMeme(st))
                 res.Add(new Collision("repli sur repli", "la pièce se referme sur elle-même", true));
@@ -301,5 +319,54 @@ namespace SimulateurPliage.Pliage
             double m = Math.Sqrt(x * x + y * y);
             return m > 1e-9 ? new Pt(x / m, y / m) : new Pt(0, 0);
         }
-    }
+    
+        /// <summary>
+        /// Hauteur VERTICALE MAXI, au-dessus de la face matrice, atteinte par les ailes DÉJÀ
+        /// FORMÉES à cette étape — dans le monde réel (aile verticale = pleine hauteur), pas
+        /// dans le repère bissectrice du dessin. On parcourt les plis faits avant l'étape
+        /// courante et on cumule l'élévation de chaque pan relevé. Un pan de longueur L relevé
+        /// d'un angle de pli 'a' monte de L·sin(180−a) ; les pans à plat (a=180) montent de 0.
+        /// C'est ce qui vient toucher le tablier sur un grand développé ou une aile de 300.
+        /// </summary>
+        static double HauteurAilesFormees(EtatEtape st, Piece p)
+        {
+            // angles réellement acquis à cette étape (plis d'index < étape, + le pli courant)
+            int nb = p.NbPlis;
+            var faitAngle = new double[nb];
+            for (int i = 0; i < nb; i++) faitAngle[i] = 180.0;   // 180 = à plat = pas encore formé
+            for (int s = 0; s <= st.Etape && s < p.Sequence.Count; s++)
+            {
+                var o = p.Sequence[s];
+                if (o.Bend >= 0 && o.Bend < nb) faitAngle[o.Bend] = o.AngleCible;
+            }
+            // on suit la fibre : à partir de la ligne de pli active, on cumule l'élévation des
+            // pans en remontant vers l'extérieur, tant que le pan précédent est relevé.
+            var seg = p.Segments;
+            double hmax = 0, h = 0;
+            // côté opérateur (aval du sommet) puis côté butée (amont) : on prend le plus haut.
+            for (int dir = 0; dir < 2; dir++)
+            {
+                h = 0;
+                int bend = st.Op.Bend;
+                if (dir == 0) // vers l'aval : plis bend, bend+1, ...
+                    for (int b = bend; b < nb; b++)
+                    {
+                        double relev = (180.0 - faitAngle[b]) * Math.PI / 180.0;
+                        h += (b + 1 < seg.Count ? seg[b + 1] : 0) * Math.Abs(Math.Sin(relev));
+                        if (h > hmax) hmax = h;
+                        if (Math.Abs(faitAngle[b] - 180.0) < 1) break;   // pan à plat : on ne monte plus
+                    }
+                else          // vers l'amont : plis bend, bend-1, ...
+                    for (int b = bend; b >= 0; b--)
+                    {
+                        double relev = (180.0 - faitAngle[b]) * Math.PI / 180.0;
+                        h += (b < seg.Count ? seg[b] : 0) * Math.Abs(Math.Sin(relev));
+                        if (h > hmax) hmax = h;
+                        if (Math.Abs(faitAngle[b] - 180.0) < 1) break;
+                    }
+            }
+            return hmax;
+        }
+
+}
 }
