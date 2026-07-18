@@ -71,6 +71,20 @@ namespace SimulateurPliage.Pliage
                 for (int k = 0; k < n; k++)
                 {
                     if (faits[k] || faceParPli[k] != parite) continue;
+
+                    // CONTRAINTE MÉTIER DURE (Weapon) — LE 1er PLI FORMÉ EST LE PLUS FERMÉ.
+                    // Un pli fermé rigidifie la tôle ; une fois la tôle raidie par d'autres
+                    // plis, on ne peut plus le former (ça ne passe plus, ou le retour tape le
+                    // haut du tablier et on casse tôle + machine). Donc le pli le plus aigu de
+                    // la pièce doit être le PREMIER geste. Règle physique, dure : on élague.
+                    // ATTENTION : ça porte sur le PREMIER pli seulement, PAS sur tout l'ordre.
+                    // Forcer un ordre décroissant à chaque étape casserait la couvertine (le
+                    // 45° part d'abord, mais le 88° peut suivre le 92° sans souci). Une fois le
+                    // 1er pli posé, les suivants sont libres (sous réserve de collision/calage).
+                    // AngleCible faible = pli fermé (180 = plat, 90 = équerre, 45 = aigu).
+                    if (nbFaits == 0 && !EstLePlusFerme(anglesParPli, k))
+                        continue;
+
                     for (int f = 0; f < 2; f++)
                     {
                         bool aval = f == 1;
@@ -135,6 +149,20 @@ namespace SimulateurPliage.Pliage
             });
             if (uniq.Count > maxSolutions) uniq.RemoveRange(maxSolutions, uniq.Count - maxSolutions);
             return uniq;
+        }
+
+        /// <summary>
+        /// Le pli k est-il le PLUS FERMÉ de la pièce (angle le plus petit) ? Sert à imposer
+        /// qu'il soit formé en premier. Tolérance 1° : si deux plis sont à égalité de fermeture
+        /// (45 et 45, ou 45 et 45,5), les deux sont des départs valables — on n'en privilégie
+        /// aucun, le reste du tri (prise opérateur, retournements) départagera.
+        /// </summary>
+        static bool EstLePlusFerme(double[] angles, int k)
+        {
+            double ak = angles[k];
+            foreach (var a in angles)
+                if (a < ak - 1.0) return false;   // il existe un pli nettement plus fermé que k
+            return true;
         }
 
         /// <summary>
