@@ -502,64 +502,59 @@ namespace SimulateurPliage.Vues
         {
             plat = 0; face = 0;
             var initial = new List<Operation>(piece.Sequence);
-            var ordre = new List<Operation>();
-            var restant = new List<Operation>(initial);
 
-            if (Explorer(ordre, restant))
+            // On appelle le VRAI solveur (Pliage/Solveur.cs) : contrainte « pli fermé en
+            // premier », classement par prise opérateur, collision tablier, plancher d'angle,
+            // parité de face. C'est lui la référence, testée au banc — pas une exploration
+            // maison. On lui passe la pièce telle qu'affichée : longueurs, angles, faces, V.
+            piece.AssurerForme();
+            int n = piece.NbPlis;
+            if (n == 0 || piece.Segments.Count < 2) { Recalculer(); return false; }
+
+            var segments = new List<double>(piece.Segments);
+            var faces = new int[n];
+            var angles = new double[n];
+            var vs = new double[n];
+            // ⚠️ LIMITE CONNUE : les faces viennent de piece.Faces, alimenté par AssurerForme
+            // depuis le drapeau Retournee de la séquence. Pour les démos et une pièce dont les
+            // retournements sont posés, c'est juste. Pour une pièce saisie de zéro sans faces
+            // définies, tout sera « même face » (false) et le solveur peut résoudre une pièce
+            // impossible (cf. Z spirale). La colonne Face éditable réglera ça (roadmap).
+            for (int b = 0; b < n; b++)
             {
-                piece.Sequence = ordre;
-                etape = 0;
-                foreach (var o in piece.Sequence)
-                {
-                    if (o.ButeeAval) plat++;
-                    if (o.Retournee) face++;
-                }
+                angles[b] = piece.Angles[b];
+                faces[b] = piece.Faces[b] ? 1 : 0;
+                // V de chaque pli : celui déjà choisi dans la séquence pour ce pli, sinon défaut.
+                double v = VParDefaut();
+                foreach (var o in initial) if (o.Bend == b) { v = o.V; break; }
+                vs[b] = v;
+            }
+
+            var sols = Solveur.Resoudre(segments, faces, angles, vs, plieuse, poincon, matrice,
+                                        atelier.Embase, piece.Epaisseur, plieuse.ButeeMin);
+
+            if (sols.Count == 0)
+            {
+                piece.Sequence = initial;   // rien trouvé : on ne casse pas ce qui était là
                 Recalculer();
-                return true;
+                return false;
             }
 
-            piece.Sequence = initial;
-            Recalculer();
-            return false;
-        }
-
-        // Confort opérateur : on RETOURNE À PLAT (⇄) dès que c'est possible. Une tôle
-        // qu'on tourne à plat sur la table se manipule sans forcer, alors que tenir un
-        // grand pan en l'air casse le dos (intérimaires compris). Donc ButeeAval en
-        // premier, direct seulement si le retournement ne pose pas à plat. ⇅ en dernier.
-        static readonly (bool aval, bool face)[] Engagements =
-            { (true, false), (false, false), (true, true), (false, true) };
-
-        bool Explorer(List<Operation> ordre, List<Operation> restant)
-        {
-            if (restant.Count == 0) return true;
-
-            for (int i = 0; i < restant.Count; i++)
+            // meilleure solution = la 1re (le solveur trie déjà : fermé-d'abord, prise, manip)
+            piece.Sequence = new List<Operation>(sols[0].Sequence);
+            etape = 0;
+            foreach (var o in piece.Sequence)
             {
-                var op = restant[i];
-                restant.RemoveAt(i);
-
-                bool memoA = op.ButeeAval, memoF = op.Retournee;
-                foreach (var (aval, face) in Engagements)
-                {
-                    op.ButeeAval = aval;
-                    op.Retournee = face;
-                    ordre.Add(op);
-
-                    var sauve = piece.Sequence;
-                    piece.Sequence = new List<Operation>(ordre);
-                    bool ok = !Moteur.Construire(piece, ordre.Count - 1, plieuse, poincon, matrice, atelier.Embase).Bloque;
-                    piece.Sequence = sauve;
-
-                    if (ok && Explorer(ordre, restant)) return true;
-                    ordre.RemoveAt(ordre.Count - 1);
-                }
-                op.ButeeAval = memoA; op.Retournee = memoF;
-
-                restant.Insert(i, op);
+                if (o.ButeeAval) plat++;
+                if (o.Retournee) face++;
             }
-            return false;
+            Recalculer();
+            return true;
         }
+
+        // NB : l'exploration d'ordre est faite par Pliage/Solveur.cs (le vrai solveur, testé
+        // au banc). L'ancienne recherche maison « Explorer » a été retirée — elle doublonnait
+        // le solveur sans connaître la règle « fermé d'abord » ni le classement par prise.
 
         double VParDefaut()
         {
