@@ -145,8 +145,12 @@ namespace SimulateurPliage.Vues
             dgPans.Columns.Add(Col("pan", "Pan", 40, true));
             dgPans.Columns.Add(Col("lg", "Longueur", 74, true));
             dgPans.Columns.Add(Col("ang", "Angle", 52, true));
-            dgPans.Columns.Add(Col("face", "Face", 46, true));
+            dgPans.Columns.Add(Col("face", "Face", 52, true));
             dgPans.ReadOnly = true;
+            // La colonne Face est la SEULE éditable : un clic bascule FNL <-> FL.
+            // FL = côté brillant / laqué / galva-zinc traité, va vers le visible du produit.
+            // FNL = l'autre côté. C'est une donnée de la PIÈCE (elle vient du dessin), pas de
+            // la séquence : le solveur en déduit les retournements, jamais l'inverse.
 
             // --- SYNCHRO PANS ↔ PUPITRE ---
             // coloriage : les pans qui bordent le pli sélectionné dans le pupitre
@@ -175,6 +179,16 @@ namespace SimulateurPliage.Vues
                 int p = dgPans.CurrentCell?.RowIndex ?? -1;
                 if (p < 0) { vuePupitre.SurlignerPlis(); return; }
                 vuePupitre.SurlignerPlis(p - 1, p);
+            };
+            // clic sur la colonne FACE -> bascule FNL <-> FL pour ce pli, et re-solve.
+            dgPans.CellClick += (s, e) => BasculerFace(e.RowIndex, e.ColumnIndex);
+            // curseur main quand on survole une case Face éditable (pli existant)
+            dgPans.CellMouseMove += (s, e) =>
+            {
+                bool surFace = e.RowIndex >= 0 && e.ColumnIndex >= 0
+                    && dgPans.Columns[e.ColumnIndex].Name == "face"
+                    && e.RowIndex < piece.NbPlis;
+                dgPans.Cursor = surFace ? Cursors.Hand : Cursors.Default;
             };
 
             // --- AU MILIEU : fichier + bibliothèque de profils ---
@@ -707,6 +721,28 @@ namespace SimulateurPliage.Vues
                     MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
             biblio.Supprimer(pr);
             RafraichirProfils();
+        }
+
+        /// <summary>
+        /// Bascule la face d'un pli FNL <-> FL depuis la grille PANS. La face est une donnée
+        /// de la PIÈCE (elle vient du dessin / de la tôle), indépendante de la séquence :
+        /// FL = côté brillant / laqué / galva-zinc traité (vers le visible), FNL = l'autre côté.
+        /// On écrit dans piece.Faces, puis on ré-affiche. On NE touche pas à la séquence : c'est
+        /// au solveur (bouton Ordre auto) de déduire les retournements à partir des faces.
+        /// </summary>
+        void BasculerFace(int ligne, int colonne)
+        {
+            if (_load || ligne < 0 || colonne < 0) return;
+            if (dgPans.Columns[colonne].Name != "face") return;   // seule la colonne Face réagit
+            piece.AssurerForme();
+            if (ligne >= piece.NbPlis) return;                    // dernier pan : pas de pli, rien à faire
+            if (ligne >= piece.Faces.Count) return;
+
+            piece.Faces[ligne] = !piece.Faces[ligne];             // FNL <-> FL
+            piece.FacesManuelles = true;                          // désormais la saisie fait foi
+
+            ChargerPans();
+            Recalculer();
         }
 
         void ChargerPans()

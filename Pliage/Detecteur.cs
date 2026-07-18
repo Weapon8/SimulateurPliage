@@ -330,40 +330,61 @@ namespace SimulateurPliage.Pliage
         /// </summary>
         static double HauteurAilesFormees(EtatEtape st, Piece p)
         {
-            // angles réellement acquis à cette étape (plis d'index < étape, + le pli courant)
+            // Hauteur réelle MAXI (Y signé) atteinte par la tôle à cette étape, dans le MONDE
+            // RÉEL — pas le repère bissectrice, et en tenant compte du SENS des plis (vers le
+            // haut / vers le bas) et du RETOURNEMENT de l'étape. Un pli en butée qui pend vers
+            // le BAS a un Y négatif : il ne peut pas taper le tablier (il descend sous la table).
+            // C'était le bug : l'ancien calcul prenait |sin| et comptait tout comme montant.
             int nb = p.NbPlis;
             var faitAngle = new double[nb];
-            for (int i = 0; i < nb; i++) faitAngle[i] = 180.0;   // 180 = à plat = pas encore formé
+            var faitSens  = new int[nb];                 // +1 vers le haut, -1 vers le bas
+            for (int i = 0; i < nb; i++) { faitAngle[i] = 180.0; faitSens[i] = +1; }
             for (int s = 0; s <= st.Etape && s < p.Sequence.Count; s++)
             {
                 var o = p.Sequence[s];
-                if (o.Bend >= 0 && o.Bend < nb) faitAngle[o.Bend] = o.AngleCible;
+                if (o.Bend >= 0 && o.Bend < nb)
+                {
+                    faitAngle[o.Bend] = o.AngleCible;
+                    // Sens réel du volet : un pli monte, MAIS un retournement (⇅) de l'étape
+                    // COURANTE renverse la pièce -> les plis formés AVANT pointent vers le bas.
+                    faitSens[o.Bend] = +1;
+                }
             }
-            // on suit la fibre : à partir de la ligne de pli active, on cumule l'élévation des
-            // pans en remontant vers l'extérieur, tant que le pan précédent est relevé.
+
+            // Le retournement de l'étape courante bascule tout le référentiel : ce qui montait
+            // se retrouve en bas. On applique ce renversement aux plis déjà là.
+            bool retourne = st.Op != null && st.Op.Retournee;
+            int orient = retourne ? -1 : +1;
+
+            // On reconstruit la fibre réelle en partant du pli actif (à l'origine, horizontal),
+            // en cumulant l'angle réel à chaque sommet. On lit le Y max SIGNÉ.
             var seg = p.Segments;
-            double hmax = 0, h = 0;
-            // côté opérateur (aval du sommet) puis côté butée (amont) : on prend le plus haut.
+            int actif = st.Op != null ? st.Op.Bend : 0;
+            double hmax = 0;
+
+            // deux directions depuis le pli actif : aval (vers l'extérieur droit) et amont.
             for (int dir = 0; dir < 2; dir++)
             {
-                h = 0;
-                int bend = st.Op.Bend;
-                if (dir == 0) // vers l'aval : plis bend, bend+1, ...
-                    for (int b = bend; b < nb; b++)
-                    {
-                        double relev = (180.0 - faitAngle[b]) * Math.PI / 180.0;
-                        h += (b + 1 < seg.Count ? seg[b + 1] : 0) * Math.Abs(Math.Sin(relev));
-                        if (h > hmax) hmax = h;
-                        if (Math.Abs(faitAngle[b] - 180.0) < 1) break;   // pan à plat : on ne monte plus
-                    }
-                else          // vers l'amont : plis bend, bend-1, ...
-                    for (int b = bend; b >= 0; b--)
-                    {
-                        double relev = (180.0 - faitAngle[b]) * Math.PI / 180.0;
-                        h += (b < seg.Count ? seg[b] : 0) * Math.Abs(Math.Sin(relev));
-                        if (h > hmax) hmax = h;
-                        if (Math.Abs(faitAngle[b] - 180.0) < 1) break;
-                    }
+                double ang = 0;
+                double y = 0;
+                int step = dir == 0 ? +1 : -1;
+                int b = actif;
+                for (int k = 0; k < nb + 1; k++)
+                {
+                    // pli franchi AVANT d'avancer sur le pan suivant : c'est lui qui relève le pan.
+                    int pli = dir == 0 ? b : b - 1;
+                    if (pli < 0 || pli >= nb) break;
+                    if (Math.Abs(faitAngle[pli] - 180.0) < 1) break;   // pan à plat : fin de l'aile
+                    double tourne = (180.0 - faitAngle[pli]) * Math.PI / 180.0;
+                    ang += orient * step * tourne;
+
+                    int panIdx = dir == 0 ? b + 1 : b;
+                    double L = (panIdx >= 0 && panIdx < seg.Count) ? seg[panIdx] : 0;
+                    if (L <= 0) break;
+                    y += L * Math.Sin(ang);
+                    if (y > hmax) hmax = y;                 // Y signé : ce qui pend (négatif) ne tape pas
+                    b += step;
+                }
             }
             return hmax;
         }

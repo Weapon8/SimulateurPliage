@@ -53,6 +53,13 @@ namespace SimulateurPliage.Pliage
         /// Même face = même sens de virage. C'est ça qui fait la forme.</summary>
         public List<bool> Faces = new();
 
+        /// <summary>Quand true, les faces ont été saisies à la main (colonne Face) ou lues d'un
+        /// dessin : elles font foi et NE sont PAS réécrites depuis la séquence. Quand false
+        /// (démos, anciens fichiers), la face est déduite du drapeau Retournee de la séquence,
+        /// comme avant. C'est ce qui sépare « face = donnée de la pièce » de « retournement =
+        /// geste de la séquence » sans casser l'existant.</summary>
+        public bool FacesManuelles = false;
+
         public List<Operation> Sequence = new();
 
         /// <summary>
@@ -128,7 +135,11 @@ namespace SimulateurPliage.Pliage
             {
                 var b = Bande(o.Axe);
                 if (o.Bend >= 0 && o.Bend < b.NbPlis)
-                { b.Angles[o.Bend] = o.AngleCible; b.Faces[o.Bend] = o.Retournee; }
+                {
+                    b.Angles[o.Bend] = o.AngleCible;
+                    // La face n'est déduite du retournement QUE si elle n'a pas été saisie.
+                    if (!FacesManuelles) b.Faces[o.Bend] = o.Retournee;
+                }
             }
 
             static void Dimensionner(Piece b)
