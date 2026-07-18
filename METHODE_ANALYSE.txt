@@ -1,12 +1,13 @@
-MÉTHODE + RÈGLES FIGÉES — SimulateurPliage (maj 18/07, session chéneau/coiffe)
-=============================================================================
+MÉTHODE + RÈGLES FIGÉES — SimulateurPliage (fige 18/07, session chéneau/coiffe + datasets)
+==========================================================================================
 À recoller en tête de la prochaine session, avec le fichier de démarrage.
 
 CONVENTION D'ANGLE (règle Weapon, PRIME sur tout)
-  180 = 0 = tôle à plat   |   90 = équerre   |   45 = pli aigu (fermé/serré)
-  Dans le code : AngleCible = 180 - rotation. Le commentaire "angle intérieur"
-  de Piece.cs ligne ~20 est TROMPEUR : c'est l'angle de PLI de Weapon, pas
-  l'angle intérieur géométrique. (à corriger dans le code un jour)
+  180 = 0 = tôle à plat  |  90 = équerre  |  45 = pli aigu (fermé/serré)
+  L'angle noté = angle de PLI (de combien on plie depuis le plat), PAS l'angle intérieur
+  géométrique. Dans le code : la tôle tourne de 180 - AngleCible.
+  ⚠️ Commentaire "angle intérieur" de Piece.cs ligne ~20 TROMPEUR, à corriger.
+  (Vérifié : BenDFM utilise la même convention — 90=équerre, 45=aigu.)
 
 ORDRE D'ANALYSE D'UN PROFIL — toujours, ne jamais sauter une étape :
   1. LES FACES d'abord. Lire sur le dessin, pli par pli, de quel côté ça ferme.
@@ -14,32 +15,45 @@ ORDRE D'ANALYSE D'UN PROFIL — toujours, ne jamais sauter une étape :
        - un Z alterne les faces (jamais 2 plis de suite même face)
        - un profil qui serpente (bosse puis creux) bascule de face à chaque inversion
        - ne poser [0,0,0,...] QUE si le dessin montre tout du même côté (L, cornière)
-     Ne jamais présenter une lecture au solveur sans avoir vérifié les faces au banc.
+     Ne JAMAIS présenter une lecture au solveur sans avoir vérifié les faces au banc.
   2. LES COTES (pans, bleu sur les croquis Weapon), lèvre à lèvre.
-  3. LES ANGLES (rouge). Vérifier le plancher : angle < angle du vé = impossible
-     en l'air (2045 : V16 à 45° -> une casse à 44° refusée à juste titre).
+  3. LES ANGLES (rouge). Plancher : angle < angle du vé = impossible en l'air.
 
 RÈGLES MÉTIER DURES (codées dans le solveur/détecteur) :
-  - PLI FERMÉ EN PREMIER. Le pli le plus aigu de la pièce est TOUJOURS le 1er
-    geste (il rigidifie la tôle ; après, on ne passe plus / ça tape le tablier).
-    Contrainte DURE sur le 1er pli seulement — PAS un ordre décroissant sur toute
-    la séquence (ça casserait la couvertine : 88° peut suivre 92°).
+  - PLI FERMÉ EN PREMIER (confirmé sur TOUTE la prod TolTem). Le pli le plus aigu de la
+    pièce est TOUJOURS le 1er geste : il rigidifie la tôle ; après on ne passe plus / ça
+    tape le tablier / on casse tôle + machine. Contrainte DURE sur le 1er pli SEULEMENT —
+    PAS un ordre décroissant sur toute la séquence (casserait la couvertine : 88 suit 92).
     -> le pupitre doit ALERTER si l'op change le pli n°1. (à coder dans la vue)
-  - COLLISION TABLIER (le HAUT mobile : coulisseau+inter+poinçon). Garde du bout
-    du bec au tablier = 280 mm (Loire Safe), débord bâti 66 mm/côté, marge flexion
-    5 mm. Hauteur d'aile VRAIE = L·sin(180-angle), PAS la projection du repère
-    bissectrice. Une aile de 300 à 90° monte à 300 -> tape. À 45° -> 212 -> passe.
-  - AILE MINI = max(0,63×V, butée mini). Deux pans testés (formage ET butée).
+  - COLLISION TABLIER (le HAUT mobile : coulisseau+inter+poinçon). Garde du bout du bec au
+    tablier = 280 mm (Loire Safe), débord bâti 66 mm/côté, marge flexion 5 mm. Hauteur
+    d'aile VRAIE = L·sin(180-angle), PAS la projection du repère bissectrice (qui pivote
+    avec le pli). Aile 300 à 90° monte à 300 -> tape ; à 45° monte à 212 -> passe.
+  - AILE MINI = max(0,63×V, butée mini). Testée sur les DEUX pans (formage ET butée).
+  - PLANCHER D'ANGLE = angle du vé. 2045 : V16@45° -> plancher 45°. 4 voies : vés 85/88°
+    -> plancher 85° (pli quasi-droit UNIQUEMENT). AUCUNE matrice actuelle ne fait <45°.
   - Le bas (bâti + support matrice) est FIXE = référence y=0 sur la face matrice.
 
 VOCABULAIRE (corrigé par Weapon) :
   tablier = le HAUT mobile. bâti+support matrice = le BAS fixe.
   "inter" = support poinçon = porte-poinçon dans le code. raidisseur = pli à 45°.
-  pli écrasé (lèvre rabattue à fond) = formé AUTREMENT, hors périmètre plieuse.
+  pli écrasé (lèvre rabattue à fond) = formé AUTREMENT (Jouanel), hors périmètre plieuse.
 
-PIÈGES RÉCURRENTS (3 jours de plantages, tous de MON côté) :
+PIÈCES DE RÉFÉRENCE (gelées dans Autotest, 22 contrôles) :
+  Chevêtre 20·40·100·40·20 (4× 90°) · Z laqué 30·25·25·10 · Couvertine 10·30·230·30·10.
+  Toutes commencent par le pli le plus fermé.
+
+DATASETS EXTERNES TESTÉS :
+  BenDFM (UGent, 20000 pièces, MIT, github.com/UGent-CVAMO/bendfm) : 6 exemples testés au
+  banc, 0 plantage, refus tous cohérents (plancher, tonnage, tablier). Reste (Zenodo)
+  bloqué par réseau bac à sable. Fusion360/ABC écartés (génériques sketch+extrude, pas de
+  séquence de pliage exploitable). Constat métier : les pièces industrielles utilisent du
+  30° couramment -> une matrice à vé aigu serait un vrai plus.
+
+PIÈGES RÉCURRENTS (tous du côté assistant, à ne pas réapprendre) :
   - deviner les faces au lieu de les lire = LA faute principale (Z spirale, chéneau)
   - inverser la convention d'angle (45 lu comme ouvert)
   - mesurer une hauteur dans le repère bissectrice qui pivote avec le pli
   - harnais de test qui passe les angles dans le désordre (faux "0 solution")
-  QUAND LE CODE ET WEAPON DIVERGENT : c'est le code/moi qui a tort. Weapon dit vrai.
+  - servir un binaire en cache après échec compil (toujours vérifier "erreurs: 0")
+  QUAND LE CODE ET L'ATELIER DIVERGENT : c'est le code/moi qui a tort. Weapon dit vrai.
