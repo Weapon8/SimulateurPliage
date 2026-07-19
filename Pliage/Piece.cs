@@ -210,10 +210,14 @@ namespace SimulateurPliage.Pliage
         /// </summary>
         public bool FaceDessusFNL(int etape)
         {
-            bool fnl = true;
-            for (int i = 0; i <= etape && i < Sequence.Count; i++)
-                if (Sequence[i].Retournee) fnl = !fnl;
-            return fnl;
+            // La face VISIBLE dessus à une étape = la FACE DÉCLARÉE du pli qu'on y forme
+            // (donnée de la pièce, lue au dessin). C'est ce qui fait foi — pas la parité des
+            // retournements, qui donnait un faux violet sur le dernier pli de la couvertine.
+            // Retour : true = FNL dessus (bleu), false = FL dessus (violet).
+            if (etape < 0 || etape >= Sequence.Count) return true;
+            int b = Sequence[etape].Bend;
+            if (b < 0 || b >= Faces.Count) return true;
+            return !Faces[b];        // Faces[b]=true => FL dessus (violet) => renvoie false
         }
 
         public int PliAppui(int s)
