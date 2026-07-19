@@ -161,9 +161,12 @@ namespace SimulateurPliage.Vues
             // La couleur DIT quelle face est dessus : bleu = FNL (face de référence, laquage
             // protégé dessous), violet = FL (pièce retournée, le laquage est visible — on y
             // fait gaffe). Collision et reprise passent devant : ce sont des alertes.
+            // La face dessus suit la PARITÉ des retournements ⇅ cumulés, pas le drapeau seul :
+            // deux ⇅ ramènent la face de départ (FNL, bleu).
+            bool flDessus = etat.Piece != null && !etat.Piece.FaceDessusFNL(etat.Etape);
             Color col = etat.Bloque ? Theme.Alerte
                       : etat.Op.Reprise ? Theme.Reprise
-                      : etat.Op.Retournee ? Theme.ToleFL
+                      : flDessus ? Theme.ToleFL
                       : Theme.Tole;
 
             // La tole est un CORPS, pas un trait : remplissage + contour net. On epaissit vers
@@ -301,12 +304,13 @@ namespace SimulateurPliage.Vues
             using var f = new Font("Segoe UI", 8.5f);
 
             // FACE DESSUS. Meme code couleur que la tole : bleu = FNL, violet = FL.
-            Color cf = etat.Op.Retournee ? Theme.ToleFL : Theme.Tole;
+            bool flLeg = etat.Piece != null && !etat.Piece.FaceDessusFNL(etat.Etape);
+            Color cf = flLeg ? Theme.ToleFL : Theme.Tole;
             using (var b = new SolidBrush(cf))
             {
                 g.FillRectangle(b, x + 4, y + 4, 12, 12);
-                g.DrawString(etat.Op.Retournee ? "FL dessus — laquage visible"
-                                               : "FNL dessus — laquage protégé dessous", f, b, x + 26, y + 3);
+                g.DrawString(flLeg ? "FL dessus — laquage visible"
+                                   : "FNL dessus — laquage protégé dessous", f, b, x + 26, y + 3);
             }
             y += 24;
 

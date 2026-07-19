@@ -201,6 +201,21 @@ namespace SimulateurPliage.Pliage
         /// s'appuie sur le retour du 10, le 40 qui bute contre le retour du 20, le 100 contre
         /// celui du 40. Ce n'est PAS un retournement : on pousse, c'est tout.
         /// </summary>
+        /// <summary>
+        /// Face VISIBLE dessus à une étape donnée, pour l'affichage (couleur bleu/violet).
+        /// Elle bascule à CHAQUE retournement dessus/dessous ⇅ cumulé depuis le début : on
+        /// part de la face de référence (FNL) dessus, chaque ⇅ inverse. Deux ⇅ ramènent la
+        /// face de départ. C'est la parité des retournements, pas le drapeau de l'étape seule.
+        /// Retour : true = FNL dessus (bleu), false = FL dessus (violet).
+        /// </summary>
+        public bool FaceDessusFNL(int etape)
+        {
+            bool fnl = true;
+            for (int i = 0; i <= etape && i < Sequence.Count; i++)
+                if (Sequence[i].Retournee) fnl = !fnl;
+            return fnl;
+        }
+
         public int PliAppui(int s)
         {
             if (s < 0 || s >= Sequence.Count) return -1;
@@ -337,6 +352,7 @@ namespace SimulateurPliage.Pliage
     {
         public int Etape;
         public Operation Op;
+        public Piece Piece;                    // la pièce, pour l'affichage (face dessus, appui...)
         public List<Pt> PanArriere = new();   // côté butée, posé sur la matrice
         public List<Pt> Formage = new();       // volet en cours de formage
         public double ButeeDistance;

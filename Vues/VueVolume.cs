@@ -219,9 +219,12 @@ namespace SimulateurPliage.Vues
             }
 
             // la tôle : section fermée (dessus + dessous inversé), puis extrudée
+            // Couleur = face RÉELLEMENT dessus (parité des retournements ⇅ cumulés), pas le
+            // seul drapeau de l'étape. Deux ⇅ ramènent la face de départ (bleu FNL).
+            bool flDessus = etat.Piece != null && !etat.Piece.FaceDessusFNL(etat.Etape);
             Color ct = etat.Bloque ? Theme.Alerte
                      : etat.Op.Reprise ? Theme.Reprise
-                     : etat.Op.Retournee ? Theme.ToleFL : Theme.Tole;
+                     : flDessus ? Theme.ToleFL : Theme.Tole;
             var haut = Offset(chaine, -ep / 2 + epVue);
             var bas = Offset(chaine, -ep / 2);
             var sect = new List<double[]>(haut);
@@ -272,7 +275,7 @@ namespace SimulateurPliage.Vues
             }
 
             string t = $"étape {etat.Etape + 1} · pli {etat.Op.Bend + 1} · {etat.Op.AngleCible:0}° · "
-                     + (etat.Op.Retournee ? "FL" : "FNL") + $" · butée {bd:0} · longueur de pli {lg:0} mm";
+                     + (flDessus ? "FL" : "FNL") + $" · butée {bd:0} · longueur de pli {lg:0} mm";
             TextRenderer.DrawText(g, t, Font, new Point(14, 12), Theme.Discret);
             TextRenderer.DrawText(g, $"×{_zoom:0.0}  ·  glisser = tourner · molette = zoom · double-clic = recadrer",
                 Font, new Point(14, Height - 24), Theme.Discret);

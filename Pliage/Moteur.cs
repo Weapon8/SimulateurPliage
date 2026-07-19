@@ -59,6 +59,7 @@ namespace SimulateurPliage.Pliage
             if (p.Sequence.Count == 0 || etape < 0 || etape >= p.Sequence.Count) return st;
 
             st.Op = p.Sequence[etape];
+            st.Piece = p;                      // pour l'affichage (couleur face dessus, appui)
             var ang = AnglesA(p, etape, out var sens);
 
             // LE SENS D'UN PLI DEPEND DE SA FACE — pas du drapeau de l'etape courante.
