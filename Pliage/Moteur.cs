@@ -106,7 +106,25 @@ namespace SimulateurPliage.Pliage
             }
 
             // la butee lit le pan couche contre elle : l'amont, ou l'aval si rotation a plat
-            int panButee = st.Op.ButeeAval ? st.Op.Bend + 1 : st.Op.Bend;
+            // COTE DE BUTÉE.
+            // Si les FACES sont renseignées (FacesManuelles, pièce lue au dessin / saisie),
+            // on applique la règle métier Weapon fondée sur la face : un pli INTÉRIEUR (FNL)
+            // s'appuie sur le retour précédent -> butée lit le pan AVAL ; un pli EXTÉRIEUR (FL,
+            // pièce retournée ⇅) -> butée lit l'AMONT ; le retournement à plat ⇄ inverse.
+            // Ça donne la vraie gamme du chéneau : 10 · 100 · 30 · 40 · 200.
+            // Si les faces NE sont PAS définies (anciennes démos, fichiers legacy), on garde le
+            // comportement d'origine (pan aval, ⇄ -> amont) pour ne rien casser.
+            int panButee;
+            if (bande.FacesManuelles)
+            {
+                bool litAmont = st.Op.Bend < bande.Faces.Count && bande.Faces[st.Op.Bend];  // FL -> amont
+                if (st.Op.ButeeAval) litAmont = !litAmont;                                   // ⇄ inverse
+                panButee = litAmont ? st.Op.Bend : st.Op.Bend + 1;
+            }
+            else
+            {
+                panButee = st.Op.ButeeAval ? st.Op.Bend + 1 : st.Op.Bend;   // legacy (code d'origine)
+            }
             st.ButeeDistance = bande.ButeeInt(Math.Min(panButee, bande.Segments.Count - 1));
             st.Collisions = Detecteur.Analyser(st, p, plieuse, poincon, matrice, embase);
 
