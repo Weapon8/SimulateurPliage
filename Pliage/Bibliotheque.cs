@@ -81,6 +81,7 @@ namespace SimulateurPliage.Pliage
             modif |= Injecter(Piece.Demo(), "Chevêtre 20·40·100·40·20");
             modif |= Injecter(Piece.DemoZLaque(), "Z laqué 30·25·25·10");
             modif |= Injecter(Piece.DemoCouvertine(), "Couvertine 10·30·230·30·10");
+            modif |= Injecter(Piece.DemoCheneau(), "Chéneau 30·40·150·200·100·10");
 
             // PIERRE TOMBALE — NE PAS RETIRER SANS RÉFLÉCHIR.
             // Le pare-gravier a été retiré des références : hors périmètre plieuse.

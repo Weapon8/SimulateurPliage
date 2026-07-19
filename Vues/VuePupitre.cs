@@ -41,7 +41,7 @@ namespace SimulateurPliage.Vues
         int[] surBends = new int[0]; // plis (index geometrique) a surligner = ceux bordant le pan sélectionné
 
         DataGridView dg;
-        Label lblTitle, lblFoot;
+        Label lblTitle, lblFoot, lblAlerte;
 
         static readonly Color CBg    = Color.FromArgb(12, 15, 20);
         static readonly Color CRow   = Color.FromArgb(22, 27, 34);
@@ -79,6 +79,16 @@ namespace SimulateurPliage.Vues
             {
                 Dock = DockStyle.Top, Height = 30, Text = "PUPITRE — séquence de pliage",
                 ForeColor = COrange, BackColor = CBg, Font = new Font("Segoe UI", 11, FontStyle.Bold)
+            };
+
+            // Bannière d'alerte « pli n°1 » : rouge, cachée par défaut. Apparaît quand la
+            // 1re étape n'est PAS le pli le plus fermé — règle métier dure (fermé d'abord).
+            lblAlerte = new Label
+            {
+                Dock = DockStyle.Top, Height = 0, Visible = false,
+                ForeColor = Color.White, BackColor = Color.FromArgb(176, 32, 32),
+                Font = new Font("Segoe UI", 10, FontStyle.Bold),
+                TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(10, 0, 0, 0)
             };
 
             lblFoot = new Label
@@ -232,6 +242,7 @@ namespace SimulateurPliage.Vues
             Controls.Add(dg);
             Controls.Add(bar);
             Controls.Add(lblFoot);
+            Controls.Add(lblAlerte);   // ajouté après title -> s'empile sous le titre
             Controls.Add(lblTitle);
             dg.BringToFront();
         }
@@ -315,8 +326,48 @@ namespace SimulateurPliage.Vues
             dg.Invalidate();
         }
 
+        /// <summary>
+        /// Vérifie la règle « pli fermé en premier » et affiche/masque la bannière d'alerte.
+        /// Le 1er pli formé DOIT être le plus fermé (angle le plus petit) : sinon la tôle se
+        /// rigidifie et on ne peut plus le former, ou le rebord tape le tablier. Si l'opérateur
+        /// a mis un autre pli en tête, on l'alerte en rouge — sans bloquer (il reste maître).
+        /// </summary>
+        void MajAlertePremierPli()
+        {
+            if (lblAlerte == null) return;
+            if (piece == null || piece.Sequence.Count == 0)
+            { lblAlerte.Visible = false; lblAlerte.Height = 0; return; }
+
+            piece.AssurerForme();
+            // angle le plus fermé de toute la pièce
+            double mini = double.MaxValue;
+            foreach (var an in piece.Angles) mini = Math.Min(mini, an);
+            double premier = piece.Sequence[0].AngleCible;
+
+            // L'alerte n'a de sens QUE si la pièce contient un pli franchement AIGU (≤ 45°) :
+            // un raidisseur, une pince. C'est LUI qui doit passer en premier (il rigidifie la
+            // tôle). Sans pli aigu (profil tout à 90°, ou 90/92…), aucun pli n'est critique :
+            // pas d'alerte, quel que soit l'ordre. SEUIL_AIGU = 45° (règle Weapon).
+            const double SEUIL_AIGU = 45.0;
+            bool aUnAigu = mini <= SEUIL_AIGU + 1.0;                 // existe-t-il un pli ≤ 45° ?
+            bool premierEstLAigu = premier <= SEUIL_AIGU + 1.0;      // l'étape 1 est-elle cet aigu ?
+
+            // On alerte seulement si un pli aigu existe ET qu'il n'est pas en tête.
+            if (!aUnAigu || premierEstLAigu)
+            { lblAlerte.Visible = false; lblAlerte.Height = 0; }
+            else
+            {
+                lblAlerte.Text = $"⚠ ATTENTION — un pli fermé à {mini:0}° doit être formé EN PREMIER, "
+                    + $"or l'étape 1 plie à {premier:0}°. "
+                    + "Le pli aigu rigidifie la tôle : formé après, il ne passe plus ou tape le tablier.";
+                lblAlerte.Height = 44;
+                lblAlerte.Visible = true;
+            }
+        }
+
         void UpdateFoot()
         {
+            MajAlertePremierPli();
             if (piece == null) return;
             double dev = 0; foreach (var v in piece.Segments) dev += v;
             string ep = piece.Epaisseur.ToString("0.##", CultureInfo.InvariantCulture);

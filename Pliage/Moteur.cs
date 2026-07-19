@@ -126,47 +126,6 @@ namespace SimulateurPliage.Pliage
         /// peut se coucher a plat et venir contre le doigt. Modele valide sur le chevetre
         /// (l'ordre 1-2-3-4 direct plonge a -60/-120, rejete) et sur le Z 30/25/25/10.
         /// </summary>
-        public static bool ButeeAPlat(Piece p, int etape, out string raison)
-        {
-            raison = null;
-            if (etape < 0 || etape >= p.Sequence.Count) return true;
-            var op = p.Sequence[etape];
-            int nb = p.NbPlis;
-            if (nb <= 0) return true;
-
-            // angles de positionnement : plis DEJA faits (etapes < etape) appliques,
-            // pli actif et suivants a plat (180).
-            var ang = new double[nb];
-            var sens = new Sens[nb];
-            for (int i = 0; i < nb; i++) { ang[i] = 180.0; sens[i] = Sens.Haut; }
-            for (int i = 0; i < etape && i < p.Sequence.Count; i++)
-            {
-                var o = p.Sequence[i];
-                if (o.Bend >= 0 && o.Bend < nb) { ang[o.Bend] = o.AngleCible; sens[o.Bend] = o.Sens; }
-            }
-            if (op.Retournee)
-                for (int i = 0; i < nb; i++) sens[i] = sens[i] == Sens.Haut ? Sens.Bas : Sens.Haut;
-
-            var ch = Chaine(p.Segments, ang, sens);
-            int sommet = op.Bend + 1;
-            if (sommet < 1 || sommet >= ch.Count) return true;
-            Ancrer(ch, sommet, op.ButeeAval);
-
-            // cote reference : aval [sommet..fin] si rotation a plat, sinon amont [0..sommet]
-            double miny = double.MaxValue;
-            if (op.ButeeAval)
-                for (int i = sommet; i < ch.Count; i++) miny = Math.Min(miny, ch[i].Y);
-            else
-                for (int i = 0; i <= sommet; i++) miny = Math.Min(miny, ch[i].Y);
-
-            if (miny < -0.5)
-            {
-                raison = "le pan de référence ne pose pas à plat sur la matrice (côté butée sous la face)";
-                return false;
-            }
-            return true;
-        }
-
         /// <summary>
         /// Place le sommet actif a l'origine et aligne la BISSECTRICE du pli sur +Y
         /// (l'axe du poincon) : les deux ailes s'ecartent symetriquement autour du bec.

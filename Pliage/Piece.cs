@@ -17,7 +17,7 @@ namespace SimulateurPliage.Pliage
     public sealed class Operation
     {
         public int Bend;                  // index de la ligne de pli
-        public double AngleCible = 90;    // angle intérieur visé (180 = plat)
+        public double AngleCible = 90;    // angle de PLI : de combien on plie depuis le plat (180 = plat, 90 = équerre, 45 = aigu). PAS l'angle intérieur géométrique.
         public Sens Sens = Sens.Haut;
         public double V = 16;             // ouverture matrice
         public bool Reprise;              // pli en plusieurs passes
@@ -292,6 +292,26 @@ namespace SimulateurPliage.Pliage
             p.Sequence.Add(new Operation { Bend = 1, AngleCible = 92,  Sens = Sens.Haut, V = 16 });
             p.Sequence.Add(new Operation { Bend = 3, AngleCible = 163, Sens = Sens.Haut, V = 16, ButeeAval = true, Retournee = true });
             p.Sequence.Add(new Operation { Bend = 2, AngleCible = 88,  Sens = Sens.Haut, V = 16, ButeeAval = true });
+            return p;
+        }
+
+        /// <summary>Chéneau 30·40·150·200·100·10 — validé atelier (Weapon, gamme réelle).
+        /// Raidisseur 45° côté FNL, formé en premier ; corps à 90°. Deux retournements ⇅ en fin.
+        /// Gamme : pli 10(45°) → 200-100 → 30(⇄) → 40(⇅) → 200 central(⇅).</summary>
+        public static Piece DemoCheneau()
+        {
+            var p = new Piece { Epaisseur = 1.0, Nom = "Chéneau 30·40·150·200·100·10", FacesManuelles = true };
+            p.Segments.AddRange(new double[] { 30, 40, 150, 200, 100, 10 });
+            // ordre = gamme Weapon ; faces posées à la main (FNL/FL), pas déduites du geste.
+            p.Sequence.Add(new Operation { Bend = 4, AngleCible = 45, Sens = Sens.Haut, V = 16 });                                   // le 10, raidisseur
+            p.Sequence.Add(new Operation { Bend = 3, AngleCible = 90, Sens = Sens.Haut, V = 16 });                                   // 200-100, poussée
+            p.Sequence.Add(new Operation { Bend = 0, AngleCible = 90, Sens = Sens.Haut, V = 16, ButeeAval = true });                 // le 30, ⇄
+            p.Sequence.Add(new Operation { Bend = 1, AngleCible = 90, Sens = Sens.Haut, V = 16, Retournee = true });                 // le 40, ⇅
+            p.Sequence.Add(new Operation { Bend = 2, AngleCible = 90, Sens = Sens.Haut, V = 16, Retournee = true });                 // 200 central, ⇅
+            p.AssurerForme();
+            // faces réelles du profil (le 45° ferme côté FNL) : pli0..4
+            bool[] f = { false, true, false, false, false };
+            for (int i = 0; i < f.Length && i < p.Faces.Count; i++) p.Faces[i] = f[i];
             return p;
         }
     }
