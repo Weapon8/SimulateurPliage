@@ -71,14 +71,25 @@ namespace SimulateurPliage.Pliage
             //
             // Le pli ACTIF, lui, monte toujours : la presse descend, la matrice tient.
             int axeAct = st.Op.Axe;
+            // Si les FACES sont renseignées (pièce lue/saisie), le SENS de chaque pli suit la
+            // FACE réelle : un pli sur la face de référence (FNL) tourne d'un côté, un pli sur
+            // la face opposée (FL) tourne de l'autre. C'est ce qui donne la vraie forme (le U
+            // du chéneau) au lieu d'un zigzag. Le pli ACTIF monte toujours (Sens.Haut).
+            // Le côté de référence = la face du pli actif : un pli de MÊME face que l'actif est
+            // dessiné dans le même sens, un pli de face OPPOSÉE en sens inverse.
+            bool facesConnues = p.FacesManuelles && st.Op.Bend < p.Faces.Count;
+            bool faceAct = facesConnues && p.Faces[st.Op.Bend];
             for (int i = 0; i <= etape && i < p.Sequence.Count; i++)
             {
                 var o = p.Sequence[i];
                 if (o.Axe != axeAct || o.Bend < 0 || o.Bend >= sens.Length) continue;
-                sens[o.Bend] = (o.Bend == st.Op.Bend)                 // le pli actif
-                             ? Sens.Haut
-                             : (o.Retournee == st.Op.Retournee)       // meme face qu'a cette etape ?
-                               ? Sens.Haut : Sens.Bas;
+                if (o.Bend == st.Op.Bend) { sens[o.Bend] = Sens.Haut; continue; }  // pli actif monte
+                if (facesConnues && o.Bend < p.Faces.Count)
+                    // sens selon la FACE : même face que l'actif -> Haut, face opposée -> Bas
+                    sens[o.Bend] = (p.Faces[o.Bend] == faceAct) ? Sens.Haut : Sens.Bas;
+                else
+                    // legacy : sens selon le drapeau de retournement
+                    sens[o.Bend] = (o.Retournee == st.Op.Retournee) ? Sens.Haut : Sens.Bas;
             }
 
             var bande = p.Bande(st.Op.Axe);

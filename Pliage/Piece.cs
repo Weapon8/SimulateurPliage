@@ -205,7 +205,13 @@ namespace SimulateurPliage.Pliage
         {
             if (s < 0 || s >= Sequence.Count) return -1;
             var op = Sequence[s];
-            int voisin = op.ButeeAval ? op.Bend + 1 : op.Bend - 1;
+            // Le pli d'appui est le voisin DÉJÀ FORMÉ situé du CÔTÉ BUTÉE. Le côté butée dépend
+            // de deux choses : le retournement à plat ⇄ (ButeeAval) ET le retournement
+            // dessus/dessous ⇅ (Retournee) — chacun inverse le côté. Sans retournement, le
+            // voisin d'appui est en amont (Bend-1) ; chaque retournement bascule de côté.
+            bool cotéAval = op.ButeeAval;
+            if (op.Retournee) cotéAval = !cotéAval;          // ⇅ inverse aussi le côté d'appui
+            int voisin = cotéAval ? op.Bend + 1 : op.Bend - 1;
             if (voisin < 0 || voisin >= NbPlis) return -1;
             for (int i = 0; i < s; i++)
                 if (Sequence[i].Bend == voisin) return voisin;   // déjà formé => il fait l'appui
