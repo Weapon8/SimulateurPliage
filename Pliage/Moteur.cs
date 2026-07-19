@@ -72,14 +72,20 @@ namespace SimulateurPliage.Pliage
             //
             // Le pli ACTIF, lui, monte toujours : la presse descend, la matrice tient.
             int axeAct = st.Op.Axe;
+            // Sens de chaque pli : si les faces sont connues, le sens suit la FACE (pli de même
+            // face que l'actif -> même sens ; face opposée -> sens inverse). Sinon (legacy),
+            // il suit le drapeau de retournement. C'est la face qui donne la vraie forme.
+            bool facesOk = p.FacesManuelles && st.Op.Bend < p.Faces.Count;
+            bool faceAct = facesOk && p.Faces[st.Op.Bend];
             for (int i = 0; i <= etape && i < p.Sequence.Count; i++)
             {
                 var o = p.Sequence[i];
                 if (o.Axe != axeAct || o.Bend < 0 || o.Bend >= sens.Length) continue;
-                sens[o.Bend] = (o.Bend == st.Op.Bend)                 // le pli actif
-                             ? Sens.Haut
-                             : (o.Retournee == st.Op.Retournee)       // meme face qu'a cette etape ?
-                               ? Sens.Haut : Sens.Bas;
+                if (o.Bend == st.Op.Bend) { sens[o.Bend] = Sens.Haut; continue; }
+                if (facesOk && o.Bend < p.Faces.Count)
+                    sens[o.Bend] = (p.Faces[o.Bend] == faceAct) ? Sens.Haut : Sens.Bas;
+                else
+                    sens[o.Bend] = (o.Retournee == st.Op.Retournee) ? Sens.Haut : Sens.Bas;
             }
 
             var bande = p.Bande(st.Op.Axe);

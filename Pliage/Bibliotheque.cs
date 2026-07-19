@@ -78,10 +78,11 @@ namespace SimulateurPliage.Pliage
         public void AssurerReferences()
         {
             bool modif = false;
-            modif |= Injecter(Piece.Demo(), "Chevêtre 20·40·100·40·20");
-            modif |= Injecter(Piece.DemoZLaque(), "Z laqué 30·25·25·10");
-            modif |= Injecter(Piece.DemoCouvertine(), "Couvertine 10·30·230·30·10");
-            modif |= Injecter(Piece.DemoCheneau(), "Chéneau 30·40·150·200·100·10");
+            // Les références sont FIGÉES dans ProduitReference.Json (sorties du code en dur) :
+            // on les lit et on injecte celles qui manquent. Plus aucun DemoXXX() ici — la
+            // géométrie validée à l'atelier vit dans le JSON, pas dans le moteur.
+            foreach (var prof in ChargerReferencesFigees())
+                modif |= Injecter(prof.Piece, prof.Nom);
 
             // PIERRE TOMBALE — NE PAS RETIRER SANS RÉFLÉCHIR.
             // Le pare-gravier a été retiré des références : hors périmètre plieuse.
@@ -104,6 +105,21 @@ namespace SimulateurPliage.Pliage
         }
 
         const string CHANTIER_REF = "Références";
+
+        /// <summary>
+        /// Lit les pièces de référence figées dans ProduitReference.Json. Si le JSON est
+        /// illisible (ne devrait pas arriver, il est embarqué), rend une liste vide plutôt
+        /// que de planter : l'appli démarre, simplement sans références réinjectées.
+        /// </summary>
+        static List<Profil> ChargerReferencesFigees()
+        {
+            try
+            {
+                var b = JsonSerializer.Deserialize<Bibliotheque>(ProduitReference.Json, Opt());
+                return b?.Profils ?? new List<Profil>();
+            }
+            catch { return new List<Profil>(); }
+        }
 
         /// <summary>
         /// Retire une pièce de référence devenue hors périmètre. Strictement bornée au
