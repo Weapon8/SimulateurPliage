@@ -59,7 +59,7 @@ namespace SimulateurPliage.Pliage
             if (p.Sequence.Count == 0 || etape < 0 || etape >= p.Sequence.Count) return st;
 
             st.Op = p.Sequence[etape];
-            st.Piece = p;                      // pour l'affichage (couleur face dessus, appui)
+            st.Piece = p;                      // pour l'affichage (couleur face dessus)
             var ang = AnglesA(p, etape, out var sens);
 
             // LE SENS D'UN PLI DEPEND DE SA FACE — pas du drapeau de l'etape courante.
@@ -72,25 +72,14 @@ namespace SimulateurPliage.Pliage
             //
             // Le pli ACTIF, lui, monte toujours : la presse descend, la matrice tient.
             int axeAct = st.Op.Axe;
-            // Si les FACES sont renseignées (pièce lue/saisie), le SENS de chaque pli suit la
-            // FACE réelle : un pli sur la face de référence (FNL) tourne d'un côté, un pli sur
-            // la face opposée (FL) tourne de l'autre. C'est ce qui donne la vraie forme (le U
-            // du chéneau) au lieu d'un zigzag. Le pli ACTIF monte toujours (Sens.Haut).
-            // Le côté de référence = la face du pli actif : un pli de MÊME face que l'actif est
-            // dessiné dans le même sens, un pli de face OPPOSÉE en sens inverse.
-            bool facesConnues = p.FacesManuelles && st.Op.Bend < p.Faces.Count;
-            bool faceAct = facesConnues && p.Faces[st.Op.Bend];
             for (int i = 0; i <= etape && i < p.Sequence.Count; i++)
             {
                 var o = p.Sequence[i];
                 if (o.Axe != axeAct || o.Bend < 0 || o.Bend >= sens.Length) continue;
-                if (o.Bend == st.Op.Bend) { sens[o.Bend] = Sens.Haut; continue; }  // pli actif monte
-                if (facesConnues && o.Bend < p.Faces.Count)
-                    // sens selon la FACE : même face que l'actif -> Haut, face opposée -> Bas
-                    sens[o.Bend] = (p.Faces[o.Bend] == faceAct) ? Sens.Haut : Sens.Bas;
-                else
-                    // legacy : sens selon le drapeau de retournement
-                    sens[o.Bend] = (o.Retournee == st.Op.Retournee) ? Sens.Haut : Sens.Bas;
+                sens[o.Bend] = (o.Bend == st.Op.Bend)                 // le pli actif
+                             ? Sens.Haut
+                             : (o.Retournee == st.Op.Retournee)       // meme face qu'a cette etape ?
+                               ? Sens.Haut : Sens.Bas;
             }
 
             var bande = p.Bande(st.Op.Axe);
@@ -118,24 +107,19 @@ namespace SimulateurPliage.Pliage
             }
 
             // la butee lit le pan couche contre elle : l'amont, ou l'aval si rotation a plat
-            // COTE DE BUTÉE.
-            // Si les FACES sont renseignées (FacesManuelles, pièce lue au dessin / saisie),
-            // on applique la règle métier Weapon fondée sur la face : un pli INTÉRIEUR (FNL)
-            // s'appuie sur le retour précédent -> butée lit le pan AVAL ; un pli EXTÉRIEUR (FL,
-            // pièce retournée ⇅) -> butée lit l'AMONT ; le retournement à plat ⇄ inverse.
-            // Ça donne la vraie gamme du chéneau : 10 · 100 · 30 · 40 · 200.
-            // Si les faces NE sont PAS définies (anciennes démos, fichiers legacy), on garde le
-            // comportement d'origine (pan aval, ⇄ -> amont) pour ne rien casser.
+            // COTE DE BUTÉE. Si les faces sont renseignées (FacesManuelles), règle métier
+            // fondée sur la face : pli intérieur (FNL) -> butée lit l'AVAL ; pli extérieur (FL)
+            // -> AMONT ; le ⇄ inverse. Sinon comportement d'origine (legacy).
             int panButee;
             if (bande.FacesManuelles)
             {
-                bool litAmont = st.Op.Bend < bande.Faces.Count && bande.Faces[st.Op.Bend];  // FL -> amont
-                if (st.Op.ButeeAval) litAmont = !litAmont;                                   // ⇄ inverse
+                bool litAmont = st.Op.Bend < bande.Faces.Count && bande.Faces[st.Op.Bend];
+                if (st.Op.ButeeAval) litAmont = !litAmont;
                 panButee = litAmont ? st.Op.Bend : st.Op.Bend + 1;
             }
             else
             {
-                panButee = st.Op.ButeeAval ? st.Op.Bend + 1 : st.Op.Bend;   // legacy (code d'origine)
+                panButee = st.Op.ButeeAval ? st.Op.Bend + 1 : st.Op.Bend;   // legacy
             }
             st.ButeeDistance = bande.ButeeInt(Math.Min(panButee, bande.Segments.Count - 1));
             st.Collisions = Detecteur.Analyser(st, p, plieuse, poincon, matrice, embase);
@@ -156,6 +140,47 @@ namespace SimulateurPliage.Pliage
         /// peut se coucher a plat et venir contre le doigt. Modele valide sur le chevetre
         /// (l'ordre 1-2-3-4 direct plonge a -60/-120, rejete) et sur le Z 30/25/25/10.
         /// </summary>
+        public static bool ButeeAPlat(Piece p, int etape, out string raison)
+        {
+            raison = null;
+            if (etape < 0 || etape >= p.Sequence.Count) return true;
+            var op = p.Sequence[etape];
+            int nb = p.NbPlis;
+            if (nb <= 0) return true;
+
+            // angles de positionnement : plis DEJA faits (etapes < etape) appliques,
+            // pli actif et suivants a plat (180).
+            var ang = new double[nb];
+            var sens = new Sens[nb];
+            for (int i = 0; i < nb; i++) { ang[i] = 180.0; sens[i] = Sens.Haut; }
+            for (int i = 0; i < etape && i < p.Sequence.Count; i++)
+            {
+                var o = p.Sequence[i];
+                if (o.Bend >= 0 && o.Bend < nb) { ang[o.Bend] = o.AngleCible; sens[o.Bend] = o.Sens; }
+            }
+            if (op.Retournee)
+                for (int i = 0; i < nb; i++) sens[i] = sens[i] == Sens.Haut ? Sens.Bas : Sens.Haut;
+
+            var ch = Chaine(p.Segments, ang, sens);
+            int sommet = op.Bend + 1;
+            if (sommet < 1 || sommet >= ch.Count) return true;
+            Ancrer(ch, sommet, op.ButeeAval);
+
+            // cote reference : aval [sommet..fin] si rotation a plat, sinon amont [0..sommet]
+            double miny = double.MaxValue;
+            if (op.ButeeAval)
+                for (int i = sommet; i < ch.Count; i++) miny = Math.Min(miny, ch[i].Y);
+            else
+                for (int i = 0; i <= sommet; i++) miny = Math.Min(miny, ch[i].Y);
+
+            if (miny < -0.5)
+            {
+                raison = "le pan de référence ne pose pas à plat sur la matrice (côté butée sous la face)";
+                return false;
+            }
+            return true;
+        }
+
         /// <summary>
         /// Place le sommet actif a l'origine et aligne la BISSECTRICE du pli sur +Y
         /// (l'axe du poincon) : les deux ailes s'ecartent symetriquement autour du bec.
@@ -187,19 +212,11 @@ namespace SimulateurPliage.Pliage
                 chaine[i] = new Pt(chaine[i].X * cs - chaine[i].Y * sn,
                                    chaine[i].X * sn + chaine[i].Y * cs);
 
-            // RÈGLE DE SENS FIGÉE (Weapon) : le GRAND côté va à GAUCHE (opérateur), le petit
-            // à DROITE (butée). L'opérateur tient toujours le plus grand pan devant lui ; la
-            // butée cale le petit. On oriente donc d'après la PORTÉE HORIZONTALE de chaque côté
-            // du sommet (pas d'après un pan de butée fixe) : le côté qui s'étend le plus loin
-            // doit finir à gauche (X négatif).
-            double porteeGauche = 0, porteeDroite = 0;
-            foreach (var pt in chaine)
-            {
-                if (pt.X < -porteeGauche) porteeGauche = -pt.X;
-                if (pt.X > porteeDroite) porteeDroite = pt.X;
-            }
-            // si le grand côté est à droite, on miroir pour le ramener à gauche.
-            if (porteeDroite > porteeGauche)
+            // Règle de sens : le pan gauché CONTRE LA BUTÉE part à DROITE (X > 0),
+            // quelle que soit sa taille ; tout le reste part à gauche (opérateur).
+            // Butée = pan amont (direct) ou aval (⇄ retourné à plat).
+            int refPan = buteeAval && sommet + 1 < chaine.Count ? sommet + 1 : sommet - 1;
+            if (chaine[refPan].X < 0)
                 for (int i = 0; i < chaine.Count; i++)
                     chaine[i] = new Pt(-chaine[i].X, chaine[i].Y);
         }
