@@ -175,11 +175,19 @@ namespace SimulateurPliage.Pliage
                 chaine[i] = new Pt(chaine[i].X * cs - chaine[i].Y * sn,
                                    chaine[i].X * sn + chaine[i].Y * cs);
 
-            // Règle de sens : le pan gauché CONTRE LA BUTÉE part à DROITE (X > 0),
-            // quelle que soit sa taille ; tout le reste part à gauche (opérateur).
-            // Butée = pan amont (direct) ou aval (⇄ retourné à plat).
-            int refPan = buteeAval && sommet + 1 < chaine.Count ? sommet + 1 : sommet - 1;
-            if (chaine[refPan].X < 0)
+            // RÈGLE DE SENS FIGÉE (Weapon) : le GRAND côté va à GAUCHE (opérateur), le petit
+            // à DROITE (butée). L'opérateur tient toujours le plus grand pan devant lui ; la
+            // butée cale le petit. On oriente donc d'après la PORTÉE HORIZONTALE de chaque côté
+            // du sommet (pas d'après un pan de butée fixe) : le côté qui s'étend le plus loin
+            // doit finir à gauche (X négatif).
+            double porteeGauche = 0, porteeDroite = 0;
+            foreach (var pt in chaine)
+            {
+                if (pt.X < -porteeGauche) porteeGauche = -pt.X;
+                if (pt.X > porteeDroite) porteeDroite = pt.X;
+            }
+            // si le grand côté est à droite, on miroir pour le ramener à gauche.
+            if (porteeDroite > porteeGauche)
                 for (int i = 0; i < chaine.Count; i++)
                     chaine[i] = new Pt(-chaine[i].X, chaine[i].Y);
         }

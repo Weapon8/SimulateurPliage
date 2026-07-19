@@ -10,7 +10,7 @@ namespace SimulateurPliage.Pliage
     /// ce sont des assertions qui tournent dans le build réel.
     ///
     /// RÈGLE 1 (SENS) — figée, jamais rediscutée :
-    ///     À TOUTE étape, le pan gauché CONTRE LA BUTÉE est à DROITE (X > 0).
+    ///     À TOUTE étape, le GRAND côté (opérateur) est à GAUCHE, le petit (butée) à DROITE.
     ///     Le formage part à gauche (opérateur). Sans exception : quelle que soit la
     ///     taille du pan, quel que soit ⇄ (bout pour bout) ou ⇅ (dessus/dessous).
     ///     Point contrôlé = l'extrémité libre du pan qui touche le sommet actif.
@@ -68,10 +68,16 @@ namespace SimulateurPliage.Pliage
                     continue;
                 }
 
-                // RÈGLE 1 : extrémité libre du pan qui touche le sommet = avant-dernier
-                // point du pan arrière (le dernier point EST le sommet, à l'origine).
-                Pt libre = st.PanArriere[st.PanArriere.Count - 2];
-                bool sensOk = libre.X > 0;
+                // RÈGLE 1 (Weapon) : le GRAND côté est à GAUCHE (opérateur), le petit à
+                // DROITE (butée). L'opérateur tient le plus grand pan : c'est la position
+                // physique réelle qui prime, pas un pan de butée fixe. On mesure la portée
+                // horizontale de chaque côté du sommet ; le grand côté doit être à gauche.
+                double pGauche = 0, pDroite = 0;
+                foreach (var pt in st.PanArriere)
+                { if (pt.X < -pGauche) pGauche = -pt.X; if (pt.X > pDroite) pDroite = pt.X; }
+                foreach (var pt in st.Formage)
+                { if (pt.X < -pGauche) pGauche = -pt.X; if (pt.X > pDroite) pDroite = pt.X; }
+                bool sensOk = pGauche >= pDroite - 0.01;   // grand côté à gauche
                 if (sensOk) ok++; else ko++;
 
                 // RÈGLE 2 : le sommet actif est bien à l'origine.
@@ -86,9 +92,9 @@ namespace SimulateurPliage.Pliage
                             + marque
                             + "  · butee " + st.ButeeDistance.ToString("0"));
 
-                sb.AppendLine("     R1 sens   : pan butee a " + (libre.X > 0 ? "DROITE" : "GAUCHE")
-                            + "  (x=" + libre.X.ToString("0.0") + ")   "
-                            + (sensOk ? "ok" : "<<< ECHEC : la regle veut DROITE"));
+                sb.AppendLine("     R1 sens   : grand cote a " + (pGauche >= pDroite ? "GAUCHE" : "DROITE")
+                            + "  (G=" + pGauche.ToString("0") + " D=" + pDroite.ToString("0") + ")   "
+                            + (sensOk ? "ok" : "<<< ECHEC : le grand cote doit etre a GAUCHE"));
 
                 sb.AppendLine("     R2 sommet : (" + sommet.X.ToString("0.00") + ", "
                             + sommet.Y.ToString("0.00") + ")   "
