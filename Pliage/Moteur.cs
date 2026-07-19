@@ -88,7 +88,19 @@ namespace SimulateurPliage.Pliage
             int sommet = st.Op.Bend + 1;
             if (sommet < 1 || sommet >= chaine.Count) return st;
 
-            Ancrer(chaine, sommet, st.Op.ButeeAval);
+            // pan calé contre la butée (= pan de cote) : même règle que la cote de butée.
+            int panDroite;
+            if (bande.FacesManuelles)
+            {
+                bool amont = st.Op.Bend < bande.Faces.Count && bande.Faces[st.Op.Bend];
+                if (st.Op.ButeeAval) amont = !amont;
+                panDroite = amont ? st.Op.Bend : st.Op.Bend + 1;
+            }
+            else
+            {
+                panDroite = st.Op.ButeeAval ? st.Op.Bend + 1 : st.Op.Bend;   // legacy
+            }
+            Ancrer(chaine, sommet, panDroite);
 
             // Convention d'affichage FIXE : butée + pan couché à DROITE, opérateur + formage
             // à GAUCHE, quelle que soit l'étape. Ancrer met déjà le pan côté butée à droite ;
@@ -164,7 +176,7 @@ namespace SimulateurPliage.Pliage
             var ch = Chaine(p.Segments, ang, sens);
             int sommet = op.Bend + 1;
             if (sommet < 1 || sommet >= ch.Count) return true;
-            Ancrer(ch, sommet, op.ButeeAval);
+            Ancrer(ch, sommet, op.ButeeAval ? sommet : sommet - 1);   // pan de réf (amont/aval)
 
             // cote reference : aval [sommet..fin] si rotation a plat, sinon amont [0..sommet]
             double miny = double.MaxValue;
@@ -193,7 +205,7 @@ namespace SimulateurPliage.Pliage
         /// C'est ce retournement qui rend faisable un chevetre : on ne bute jamais sur l'ame.
         /// A 180° la bissectrice est indefinie : on couche le pan a l'horizontale.
         /// </summary>
-        static void Ancrer(List<Pt> chaine, int sommet, bool buteeAval)
+        static void Ancrer(List<Pt> chaine, int sommet, int panDroite)
         {
             Pt o = chaine[sommet];
             for (int i = 0; i < chaine.Count; i++)
@@ -212,10 +224,11 @@ namespace SimulateurPliage.Pliage
                 chaine[i] = new Pt(chaine[i].X * cs - chaine[i].Y * sn,
                                    chaine[i].X * sn + chaine[i].Y * cs);
 
-            // Règle de sens : le pan gauché CONTRE LA BUTÉE part à DROITE (X > 0),
-            // quelle que soit sa taille ; tout le reste part à gauche (opérateur).
-            // Butée = pan amont (direct) ou aval (⇄ retourné à plat).
-            int refPan = buteeAval && sommet + 1 < chaine.Count ? sommet + 1 : sommet - 1;
+            // Règle de sens : le pan CALÉ CONTRE LA BUTÉE (celui qui donne la cote) part à
+            // DROITE (X > 0) ; le grand corps de tôle part à gauche (opérateur). L'index de ce
+            // pan est fourni par l'appelant (même règle que la cote : FL->amont, FNL->aval,
+            // ⇄ inverse) — c'est ce qui met le grand pan du bon côté selon le retournement.
+            int refPan = Math.Max(0, Math.Min(panDroite, chaine.Count - 1));
             if (chaine[refPan].X < 0)
                 for (int i = 0; i < chaine.Count; i++)
                     chaine[i] = new Pt(-chaine[i].X, chaine[i].Y);

@@ -134,7 +134,7 @@ namespace SimulateurPliage.Vues
             cbCotes = Combo(gauche, "Cotes", new[] { "intérieures", "extérieures" }, 0, ref y,
                 i => { piece.CotesExterieures = i == 1; Recalculer(); });
 
-            y = Titre(gauche, "PANS (longueurs mm)", y);
+            y = Titre(gauche, "PLIS", y);
             // RAPPEL, PAS SAISIE. Tout se tape au pupitre — c'est lui la CN. Cette grille
             // n'est là que pour avoir la longueur, l'angle et la face CÔTE À CÔTE sous les yeux :
             // personne ne pourra dire « j'avais pas vu ». Elle se met à jour toute seule à chaque
@@ -142,10 +142,10 @@ namespace SimulateurPliage.Vues
             // Tout est en lecture seule : deux endroits pour saisir la même cote, c'est deux
             // endroits pour se tromper.
             dgPans = Grille(gauche, 150, ref y);
-            dgPans.Columns.Add(Col("pan", "Pan", 40, true));
-            dgPans.Columns.Add(Col("lg", "Longueur", 74, true));
-            dgPans.Columns.Add(Col("ang", "Angle", 52, true));
-            dgPans.Columns.Add(Col("face", "Face", 52, true));
+            dgPans.Columns.Add(Col("pli", "Pli", 40, true));
+            dgPans.Columns.Add(Col("lg", "Longueur", 78, true));
+            dgPans.Columns.Add(Col("ang", "Angle", 56, true));
+            dgPans.Columns.Add(Col("face", "Face", 56, true));
             dgPans.ReadOnly = true;
             // La colonne Face est la SEULE éditable : un clic bascule FNL <-> FL.
             // FL = côté brillant / laqué / galva-zinc traité, va vers le visible du produit.
@@ -177,8 +177,8 @@ namespace SimulateurPliage.Vues
             {
                 if (_load || vuePupitre == null) return;
                 int p = dgPans.CurrentCell?.RowIndex ?? -1;
-                if (p < 0) { vuePupitre.SurlignerPlis(); return; }
-                vuePupitre.SurlignerPlis(p - 1, p);
+                if (p < 0 || p >= piece.Sequence.Count) { vuePupitre.SurlignerPlis(); return; }
+                vuePupitre.SurlignerPlis(piece.Sequence[p].Bend);   // surligne le pli de cette étape
             };
             // clic sur la colonne FACE -> bascule FNL <-> FL pour ce pli, et re-solve.
             dgPans.CellClick += (s, e) => BasculerFace(e.RowIndex, e.ColumnIndex);
@@ -187,7 +187,7 @@ namespace SimulateurPliage.Vues
             {
                 bool surFace = e.RowIndex >= 0 && e.ColumnIndex >= 0
                     && dgPans.Columns[e.ColumnIndex].Name == "face"
-                    && e.RowIndex < piece.NbPlis;
+                    && e.RowIndex < piece.Sequence.Count;
                 dgPans.Cursor = surFace ? Cursors.Hand : Cursors.Default;
             };
 
@@ -735,10 +735,11 @@ namespace SimulateurPliage.Vues
             if (_load || ligne < 0 || colonne < 0) return;
             if (dgPans.Columns[colonne].Name != "face") return;   // seule la colonne Face réagit
             piece.AssurerForme();
-            if (ligne >= piece.NbPlis) return;                    // dernier pan : pas de pli, rien à faire
-            if (ligne >= piece.Faces.Count) return;
+            if (ligne >= piece.Sequence.Count) return;            // la ligne = une étape de pliage
+            int b = piece.Sequence[ligne].Bend;                   // le pli (bend) de cette étape
+            if (b < 0 || b >= piece.Faces.Count) return;
 
-            piece.Faces[ligne] = !piece.Faces[ligne];             // FNL <-> FL
+            piece.Faces[b] = !piece.Faces[b];                     // FNL <-> FL sur ce pli
             piece.FacesManuelles = true;                          // désormais la saisie fait foi
 
             ChargerPans();
@@ -750,20 +751,34 @@ namespace SimulateurPliage.Vues
             _load = true;
             piece.AssurerForme();
             dgPans.Rows.Clear();
-            for (int i = 0; i < piece.Segments.Count; i++)
+            // Une ligne = UN PLI (dans l'ordre de la séquence de pliage). La longueur affichée
+            // est la cote de butée du pli (le pan qu'on replie), calculée par le moteur — même
+            // valeur que le pupitre. Affichage seul : on ne modifie pas la pièce.
+            for (int e = 0; e < piece.Sequence.Count; e++)
             {
-                // ligne du pan i : l'angle et la face décrivent le pli QUI SUIT ce pan.
-                // Le dernier pan n'a pas de pli derrière lui.
-                bool aPli = i < piece.NbPlis && i < piece.Angles.Count && i < piece.Faces.Count;
+                var op = piece.Sequence[e];
+                int b = op.Bend;
+                bool okFace = b >= 0 && b < piece.Faces.Count;
+                double cote = piece.ButeeInt(CotePli(op));
                 dgPans.Rows.Add(
-                    (i + 1).ToString(),
-                    piece.Segments[i].ToString("0.#", CultureInfo.InvariantCulture),
-                    aPli ? piece.Angles[i].ToString("0.#", CultureInfo.InvariantCulture) + "\u00B0" : "—",
-                    aPli ? (piece.Faces[i] ? "FL" : "FNL") : "—");
+                    (e + 1).ToString(),
+                    cote.ToString("0.#", CultureInfo.InvariantCulture),
+                    op.AngleCible.ToString("0.#", CultureInfo.InvariantCulture) + "\u00B0",
+                    okFace ? (piece.Faces[b] ? "FL" : "FNL") : "—");
             }
             if (nNbPlis != null)
                 nNbPlis.Value = Math.Min(nNbPlis.Maximum, Math.Max(nNbPlis.Minimum, (decimal)piece.NbPlis));
             _load = false;
+        }
+
+        // Index du pan qu'on replie pour ce pli (= pan calé contre la butée). Même règle que
+        // le moteur : face FL -> amont, FNL -> aval, le retournement à plat ⇄ inverse.
+        int CotePli(Operation op)
+        {
+            bool litAmont = op.Bend < piece.Faces.Count && piece.FacesManuelles && piece.Faces[op.Bend];
+            if (op.ButeeAval) litAmont = !litAmont;
+            int idx = litAmont ? op.Bend : op.Bend + 1;
+            return Math.Min(Math.Max(0, idx), piece.Segments.Count - 1);
         }
 
         void LirePans()
