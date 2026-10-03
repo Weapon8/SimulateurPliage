@@ -23,6 +23,10 @@ namespace SimulateurPliage.Vues
         public VueSection()
         {
             DoubleBuffered = true;
+            // Le cadrage dépend de la taille du panneau : il faut tout redessiner quand elle
+            // change. Sans ResizeRedraw, WinForms ne repeint que la bande découverte — en
+            // agrandissant la fenêtre on gardait l'ancienne image, étirée de bric et de broc.
+            ResizeRedraw = true;
             BackColor = Theme.Fond;
         }
 
@@ -147,7 +151,8 @@ namespace SimulateurPliage.Vues
             using var f = new Font("Segoe UI", 8);
             var a = T(-1000, h);
             g.DrawLine(pn, 0, a.Y, Width, a.Y);
-            g.DrawString($"hauteur libre {h:0}", f, new SolidBrush(Theme.Discret), 14, a.Y - 16);
+            using var bt = new SolidBrush(Theme.Discret);
+            g.DrawString($"hauteur libre {h:0}", f, bt, 14, a.Y - 16);
         }
 
         void DessinerTole(Graphics g, double ep, double assise, double epVue)
@@ -374,7 +379,10 @@ namespace SimulateurPliage.Vues
             // Securite : ce que l'operateur a en main de son cote. Regle metier (Weapon) :
             // toujours le plus grand cote vers l'operateur. Sous 50 mm, les doigts sont pres
             // du poincon — surtout avec un interimaire ou un apprenti pas encore forme.
-            double prise = Solveur.PriseOperateur(piece.Segments, etat.Op.Bend, etat.Op.ButeeAval);
+            // Le côté tenu se déduit du pan de butée (Piece.PanButee), pas de la case ⇄ seule :
+            // en faces saisies un pli FNL lit l'aval sans ⇄, et la prise était calculée du
+            // mauvais côté.
+            double prise = Solveur.PriseOperateur(piece, etat.Op);
             if (prise > 0 && prise < PriseAlerte)
             {
                 MainDanger(g, x + 10, y + 11, 9f);
@@ -447,15 +455,17 @@ namespace SimulateurPliage.Vues
         void Legende(Graphics g)
         {
             using var f = new Font("Segoe UI", 8.5f);
+            using var b = new SolidBrush(Theme.Discret);
             g.DrawString("bleu = FNL dessus · violet = FL dessus · vert = reprise · rouge = collision",
-                f, new SolidBrush(Theme.Discret), 12, Height - 22);
+                f, b, 12, Height - 22);
         }
 
         void Centre(Graphics g, string t)
         {
             using var f = new Font("Segoe UI", 11);
+            using var b = new SolidBrush(Theme.Discret);
             var sz = g.MeasureString(t, f);
-            g.DrawString(t, f, new SolidBrush(Theme.Discret), (Width - sz.Width) / 2, (Height - sz.Height) / 2);
+            g.DrawString(t, f, b, (Width - sz.Width) / 2, (Height - sz.Height) / 2);
         }
     }
 }

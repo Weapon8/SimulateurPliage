@@ -94,52 +94,33 @@ namespace SimulateurPliage.Pliage
             int sommet = st.Op.Bend + 1;
             if (sommet < 1 || sommet >= chaine.Count) return st;
 
-            // pan calé contre la butée (= pan de cote) : même règle que la cote de butée.
-            int panDroite;
-            if (bande.FacesManuelles)
-            {
-                bool amont = st.Op.Bend < bande.Faces.Count && bande.Faces[st.Op.Bend];
-                if (st.Op.ButeeAval) amont = !amont;
-                panDroite = amont ? st.Op.Bend : st.Op.Bend + 1;
-            }
-            else
-            {
-                panDroite = st.Op.ButeeAval ? st.Op.Bend + 1 : st.Op.Bend;   // legacy
-            }
-            Ancrer(chaine, sommet, panDroite);
+            // PAN CALÉ CONTRE LA BUTÉE (= pan de cote). La règle est écrite UNE fois, dans
+            // Piece.PanButee : faces saisies -> FNL lit l'aval, FL l'amont, ⇄ inverse ; sinon
+            // amont, ou aval si ⇄. Le dessin, la cote, le pupitre et le solveur la lisent tous
+            // au même endroit — ils ne peuvent plus diverger.
+            int panCote = bande.PanButee(st.Op);
+            bool amontEnButee = panCote <= st.Op.Bend;
+            Ancrer(chaine, sommet, panCote);
 
-            // Convention d'affichage FIXE : butée + pan couché à DROITE, opérateur + formage
-            // à GAUCHE, quelle que soit l'étape. Ancrer met déjà le pan côté butée à droite ;
-            // ici on range PanArriere = pan couché (butée), Formage = côté opérateur, en
-            // partant toujours du sommet vers l'extérieur. Sans ça, un ⇄ inversait l'image
-            // (le formage passait à droite, côté butée).
-            if (!st.Op.ButeeAval)
+            // Convention d'affichage FIXE : butée + pan de cote à DROITE, opérateur à GAUCHE,
+            // quelle que soit l'étape. PanArriere = le côté butée, Formage = le côté opérateur,
+            // tous deux rangés en partant du sommet vers l'extérieur.
+            // Le côté se décide sur le PAN DE COTE, pas sur le drapeau ⇄ : en faces saisies un
+            // pli FNL lit l'aval SANS ⇄, et l'ancien test (sur ⇄ seul) rangeait alors le côté
+            // opérateur dans PanArriere. Le dessin était juste, mais la règle 1 de l'autotest
+            // ne pouvait pas passer sur le chéneau.
+            if (amontEnButee)
             {
-                for (int i = 0; i <= sommet; i++) st.PanArriere.Add(chaine[i]);          // amont couché
+                for (int i = 0; i <= sommet; i++) st.PanArriere.Add(chaine[i]);          // amont en butée
                 for (int i = sommet; i < chaine.Count; i++) st.Formage.Add(chaine[i]);   // aval opérateur
             }
             else
             {
-                for (int i = chaine.Count - 1; i >= sommet; i--) st.PanArriere.Add(chaine[i]); // aval couché
+                for (int i = chaine.Count - 1; i >= sommet; i--) st.PanArriere.Add(chaine[i]); // aval en butée
                 for (int i = sommet; i >= 0; i--) st.Formage.Add(chaine[i]);                   // amont opérateur, sommet→ext
             }
 
-            // la butee lit le pan couche contre elle : l'amont, ou l'aval si rotation a plat
-            // COTE DE BUTÉE. Si les faces sont renseignées (FacesManuelles), règle métier
-            // fondée sur la face : pli intérieur (FNL) -> butée lit l'AVAL ; pli extérieur (FL)
-            // -> AMONT ; le ⇄ inverse. Sinon comportement d'origine (legacy).
-            int panButee;
-            if (bande.FacesManuelles)
-            {
-                bool litAmont = st.Op.Bend < bande.Faces.Count && bande.Faces[st.Op.Bend];
-                if (st.Op.ButeeAval) litAmont = !litAmont;
-                panButee = litAmont ? st.Op.Bend : st.Op.Bend + 1;
-            }
-            else
-            {
-                panButee = st.Op.ButeeAval ? st.Op.Bend + 1 : st.Op.Bend;   // legacy
-            }
-            st.ButeeDistance = bande.ButeeInt(Math.Min(panButee, bande.Segments.Count - 1));
+            st.ButeeDistance = bande.ButeeInt(panCote);
             st.Collisions = Detecteur.Analyser(st, p, plieuse, poincon, matrice, embase);
 
             // NB : en position de pose, le pli actif est encore à plat (180°). La tôle
@@ -234,8 +215,12 @@ namespace SimulateurPliage.Pliage
             // DROITE (X > 0) ; le grand corps de tôle part à gauche (opérateur). L'index de ce
             // pan est fourni par l'appelant (même règle que la cote : FL->amont, FNL->aval,
             // ⇄ inverse) — c'est ce qui met le grand pan du bon côté selon le retournement.
-            int refPan = Math.Max(0, Math.Min(panDroite, chaine.Count - 1));
-            if (chaine[refPan].X < 0)
+            // Point de contrôle = l'AUTRE BOUT du pan de cote (pan sommet-1 -> point sommet-1,
+            // pan sommet -> point sommet+1). L'ancien test lisait chaine[panDroite] : pour un
+            // pan aval c'était le sommet lui-même (x = 0), donc jamais de miroir — ça tombait
+            // juste par construction, sauf sur un pli laissé à 180° où l'aval partait à gauche.
+            int bout = panDroite < sommet ? sommet - 1 : Math.Min(sommet + 1, chaine.Count - 1);
+            if (chaine[bout].X < 0)
                 for (int i = 0; i < chaine.Count; i++)
                     chaine[i] = new Pt(-chaine[i].X, chaine[i].Y);
         }

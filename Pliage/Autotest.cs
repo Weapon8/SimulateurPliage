@@ -17,6 +17,14 @@ namespace SimulateurPliage.Pliage
     ///
     /// RÈGLE 2 (SOMMET) — le sommet du pli actif est à l'origine (pointe du poinçon).
     ///
+    /// RÈGLE 3 (COTE = DESSIN) — le pan couché à droite contre la butée est bien celui dont
+    ///     la cote est affichée : sa longueur dessinée = le pan que donne Piece.PanButee.
+    ///     C'est le garde-fou contre le retour de deux règles de butée qui divergent.
+    ///
+    /// RÈGLE 4 (GAMME) — les cotes de butée des pièces de référence, validées à l'atelier,
+    ///     étape par étape : chevêtre 20·20·40·100, Z laqué 10·25·30, couvertine 10·30·10·30,
+    ///     chéneau 10·100·30·40·200. Une modif qui en bouge une seule passe au rouge.
+    ///
     /// Ce fichier ne modifie RIEN : il ne fait que lire Moteur + Detecteur. Si un
     /// contrôle passe au rouge, c'est qu'une modif a cassé une règle — on le voit en
     /// 2 secondes, dans le build, au lieu de six allers-retours de captures.
@@ -29,13 +37,18 @@ namespace SimulateurPliage.Pliage
             int ok = 0, ko = 0;
 
             Controler(sb, "CHEVÊTRE (référence approuvée)", Piece.Demo(),
-                      plieuse, poincon, matrice, embase, ref ok, ref ko);
+                      plieuse, poincon, matrice, embase, ref ok, ref ko, new double[] { 20, 20, 40, 100 });
             sb.AppendLine();
             Controler(sb, "Z LAQUÉ 30·25·25·10", Piece.DemoZLaque(),
-                      plieuse, poincon, matrice, embase, ref ok, ref ko);
+                      plieuse, poincon, matrice, embase, ref ok, ref ko, new double[] { 10, 25, 30 });
             sb.AppendLine();
             Controler(sb, "COUVERTINE 10·30·230·30·10 (référence chantier)", Piece.DemoCouvertine(),
-                      plieuse, poincon, matrice, embase, ref ok, ref ko);
+                      plieuse, poincon, matrice, embase, ref ok, ref ko, new double[] { 10, 30, 10, 30 });
+            sb.AppendLine();
+            // Le chéneau est la seule référence en FACES SAISIES : c'est lui qui contrôle que la
+            // règle « la face commande » tient (côté de butée, sens du dessin, cote).
+            Controler(sb, "CHÉNEAU 30·40·150·200·100·10 (faces saisies)", Piece.DemoCheneau(),
+                      plieuse, poincon, matrice, embase, ref ok, ref ko, new double[] { 10, 100, 30, 40, 200 });
 
             string entete = ko == 0
                 ? "OK — " + ok + " contrôle(s) passé(s). Les règles tiennent.\r\n\r\n"
@@ -46,7 +59,7 @@ namespace SimulateurPliage.Pliage
 
         static void Controler(StringBuilder sb, string nom, Piece p,
                               Plieuse plieuse, Poincon poincon, Matrice matrice, Embase embase,
-                              ref int ok, ref int ko)
+                              ref int ok, ref int ko, double[] gamme = null)
         {
             sb.AppendLine("=== " + nom + " ===");
 
@@ -93,6 +106,27 @@ namespace SimulateurPliage.Pliage
                 sb.AppendLine("     R2 sommet : (" + sommet.X.ToString("0.00") + ", "
                             + sommet.Y.ToString("0.00") + ")   "
                             + (sommetOk ? "ok" : "<<< ECHEC : doit etre a l'origine"));
+
+                // RÈGLE 3 : le pan dessiné contre la butée est celui dont on affiche la cote.
+                var bande = p.Bande(st.Op.Axe);
+                double lgDessin = Math.Sqrt((libre.X - sommet.X) * (libre.X - sommet.X)
+                                          + (libre.Y - sommet.Y) * (libre.Y - sommet.Y));
+                double lgPan = bande.Segments[bande.PanButee(st.Op)];
+                bool coteOk = Math.Abs(lgDessin - lgPan) < 0.01;
+                if (coteOk) ok++; else ko++;
+                sb.AppendLine("     R3 cote   : pan en butee dessine " + lgDessin.ToString("0.#")
+                            + " / pan lu " + lgPan.ToString("0.#") + "   "
+                            + (coteOk ? "ok" : "<<< ECHEC : le dessin et la cote ne parlent pas du meme pan"));
+
+                // RÈGLE 4 : la gamme validée à l'atelier.
+                if (gamme != null && e < gamme.Length)
+                {
+                    bool gammeOk = Math.Abs(st.ButeeDistance - gamme[e]) < 0.01;
+                    if (gammeOk) ok++; else ko++;
+                    sb.AppendLine("     R4 gamme  : butee " + st.ButeeDistance.ToString("0.#")
+                                + " / atelier " + gamme[e].ToString("0.#") + "   "
+                                + (gammeOk ? "ok" : "<<< ECHEC : la cote de butee a bouge"));
+                }
 
                 sb.AppendLine("     collisions: " + Resume(st.Collisions));
             }

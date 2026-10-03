@@ -8,6 +8,9 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>SimulateurPliage</AssemblyName>
     <Version>0.1.0</Version>
+    <!-- L'icone de l'exe (et de la fenetre, qui la relit) : toltem.ico etait dans le dossier
+         mais aucun fichier ne le referencait, l'exe sortait avec l'icone par defaut. -->
+    <ApplicationIcon>toltem.ico</ApplicationIcon>
     <!-- Un seul exe autonome, RIEN a cote : IncludeAllContentForSelfExtract
          embarque AUSSI les natives WPF/DirectX recalcitrantes (wpfgfx, PenImc,
          PresentationNative, vcruntime, D3DCompiler) qui sinon se posent a cote. -->

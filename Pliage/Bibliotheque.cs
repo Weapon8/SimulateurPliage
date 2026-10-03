@@ -59,7 +59,12 @@ namespace SimulateurPliage.Pliage
                 if (File.Exists(f))
                 {
                     b = JsonSerializer.Deserialize<Bibliotheque>(File.ReadAllText(f), Opt());
-                    if (b != null) b.Profils ??= new();
+                    if (b != null)
+                    {
+                        b.Profils ??= new();
+                        b.Profils.RemoveAll(x => x == null || x.Piece == null);   // entrées abîmées
+                        foreach (var x in b.Profils) x.Piece.Assainir();
+                    }
                 }
             }
             catch { }
@@ -72,8 +77,14 @@ namespace SimulateurPliage.Pliage
         /// Les pièces de RÉFÉRENCE de l'atelier, rangées sous le chantier « Références » :
         /// le chevêtre, le Z laqué et la couvertine. Ce sont elles que l'autotest contrôle, et
         /// elles servent d'étalon quand on doute d'une modif — elles doivent donc rester
-        /// chargeables d'un clic, toujours. On les réinjecte si elles manquent, sans rien
-        /// toucher d'autre. Le pare-gravier en a été retiré : boîte 2 axes, hors périmètre.
+        /// chargeables d'un clic, toujours. Le pare-gravier en a été retiré : boîte 2 axes,
+        /// hors périmètre.
+        ///
+        /// Elles sont FIGÉES : à chaque démarrage on les remet à l'identique de
+        /// ProduitReference.Json. Avant, on ne réinjectait que celles qui MANQUAIENT — une
+        /// référence enregistrée par-dessus (et le bouton Enregistrer abîmait les pans, voir
+        /// FenetrePrincipale) restait fausse pour toujours dans le profils.json de l'opérateur,
+        /// alors que c'est l'étalon. Les profils des autres chantiers ne sont jamais touchés.
         /// </summary>
         public void AssurerReferences()
         {
@@ -82,11 +93,11 @@ namespace SimulateurPliage.Pliage
             // on les lit et on injecte celles qui manquent. Plus aucun DemoXXX() ici — la
             // géométrie validée à l'atelier vit dans le JSON, pas dans le moteur.
             foreach (var prof in ChargerReferencesFigees())
-                modif |= Injecter(prof.Piece, prof.Nom);
+                if (prof?.Piece != null) modif |= Restaurer(prof.Piece, prof.Nom);
 
             // PIERRE TOMBALE — NE PAS RETIRER SANS RÉFLÉCHIR.
             // Le pare-gravier a été retiré des références : hors périmètre plieuse.
-            // Mais Injecter() n'AJOUTE que — il n'enlève rien. Supprimer la ligne d'injection
+            // Mais Restaurer() ne fait qu'AJOUTER ou remettre — il n'enlève rien. Supprimer la ligne
             // ne suffit donc pas : le profil reste dans le biblio.json déjà sauvé chez
             // l'opérateur, et il le verrait encore alors qu'il n'est plus dans le binaire.
             // C'est le même piège que Atelier.CURRENT_VERSION. Cette ligne le purge au
@@ -105,6 +116,13 @@ namespace SimulateurPliage.Pliage
         }
 
         const string CHANTIER_REF = "Références";
+
+        /// <summary>Vrai si ce chantier est celui des pièces étalons : réservé, non enregistrable.</summary>
+        public static bool EstChantierReference(string chantier)
+            => string.Equals((chantier ?? "").Trim(), CHANTIER_REF, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>Vrai si ce profil est une pièce étalon (chantier « Références »).</summary>
+        public static bool EstReference(Profil p) => p != null && EstChantierReference(p.Chantier);
 
         /// <summary>
         /// Lit les pièces de référence figées dans ProduitReference.Json. Si le JSON est
@@ -131,15 +149,25 @@ namespace SimulateurPliage.Pliage
                    string.Equals(x.Nom, nom, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(x.Chantier ?? "", CHANTIER_REF, StringComparison.OrdinalIgnoreCase)) > 0;
 
-        bool Injecter(Piece p, string nom)
+        /// <summary>
+        /// Remet une pièce de référence à l'identique de l'étalon embarqué. Rend true si la
+        /// bibliothèque a changé (référence absente, ou différente de l'étalon).
+        /// </summary>
+        bool Restaurer(Piece p, string nom)
         {
-            foreach (var x in Profils)
-                if (string.Equals(x.Nom, nom, StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(x.Chantier ?? "", CHANTIER_REF, StringComparison.OrdinalIgnoreCase))
-                    return false;                       // déjà là : on ne l'écrase pas
-
             var copie = Copier(p);
             copie.Nom = nom; copie.Chantier = CHANTIER_REF;
+            string attendu = JsonSerializer.Serialize(copie, Opt());
+
+            foreach (var x in Profils)
+                if (string.Equals(x.Nom, nom, StringComparison.OrdinalIgnoreCase) && EstReference(x))
+                {
+                    string actuel = x.Piece != null ? JsonSerializer.Serialize(x.Piece, Opt()) : "";
+                    if (actuel == attendu) return false;    // déjà conforme à l'étalon
+                    x.Piece = copie;                        // abîmée ou d'une ancienne version : on la remet
+                    return true;
+                }
+
             Profils.Add(new Profil
             {
                 Nom = nom, Chantier = CHANTIER_REF,
@@ -159,16 +187,18 @@ namespace SimulateurPliage.Pliage
         static Piece Copier(Piece p)
         {
             var c = JsonSerializer.Deserialize<Piece>(JsonSerializer.Serialize(p, Opt()), Opt());
-            c.NormaliserReprises();
+            c.Assainir();
             return c;
         }
 
-        /// <summary>Enregistre (ou remplace) le profil portant ce nom dans ce chantier.</summary>
-        public void Enregistrer(Piece p, string nom, string chantier)
+        /// <summary>Enregistre (ou remplace) le profil portant ce nom dans ce chantier.
+        /// Le chantier « Références » est réservé aux étalons : rien n'y est écrit (rend false).</summary>
+        public bool Enregistrer(Piece p, string nom, string chantier)
         {
             nom = (nom ?? "").Trim();
             chantier = (chantier ?? "").Trim();
             if (nom.Length == 0) nom = "Sans nom";
+            if (EstChantierReference(chantier)) return false;
 
             var copie = Copier(p);
             copie.Nom = nom; copie.Chantier = chantier;
@@ -191,11 +221,13 @@ namespace SimulateurPliage.Pliage
                 return c != 0 ? c : string.Compare(a.Nom, b.Nom, StringComparison.OrdinalIgnoreCase);
             });
             Sauver();
+            return true;
         }
 
         public void Supprimer(Profil p)
         {
-            if (p != null && Profils.Remove(p)) Sauver();
+            if (p == null || EstReference(p)) return;      // un étalon ne se supprime pas
+            if (Profils.Remove(p)) Sauver();
         }
 
         /// <summary>Copie détachée d'un profil, prête à charger dans l'éditeur.</summary>

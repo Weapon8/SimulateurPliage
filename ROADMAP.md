@@ -96,16 +96,50 @@ et testé au banc : réutilisable tel quel.
       pas en tête** (fini les fausses alertes sur un profil tout à 90°).
 
 **Contrôle**
-- [x] `Autotest.cs` — règles figées → assertions. 22 contrôles, un clic (banc).
+- [x] `Autotest.cs` — règles figées → assertions. 64 contrôles sur les QUATRE références (le
+      chéneau y est entré : c'est la seule en faces saisies). R1 sens · R2 sommet · R3 le pan
+      dessiné en butée = le pan dont on lit la cote · R4 la gamme atelier, étape par étape.
+- [x] **Bouton Autotest** dans le panneau FICHIER : le rapport s'ouvre dans l'exe.
+
+**Session 03/10 — intégrité des données et interface** *(vérifié au banc hors Windows ; à
+valider à l'atelier sur l'exe)*
+- [x] **Une seule règle de butée** : `Piece.PanButee`. Moteur, solveur, pupitre (R), grille PLIS
+      et vue section la lisent tous là. Avant : quatre copies, deux conventions, trois cotes
+      différentes pour le même pli.
+- [x] **Enregistrer n'abîme plus les pans** : `LirePans()` supprimé (il relisait des cotes de
+      butée dans `Segments`).
+- [x] **Références vraiment figées** : remises à l'étalon à chaque démarrage, chantier
+      « Références » non enregistrable, étalons non supprimables.
+- [x] **Pupitre** : on ne relit que la cellule saisie (⇄ ne réécrit plus un pan, la ligne « fin »
+      n'annule plus une saisie) ; mise à jour en place, plus de reconstruction pendant la
+      validation d'une cellule.
+- [x] **Clic sur Face** : `Piece.FigerFaces` — passer en faces saisies ne bouge plus les autres plis.
+- [x] **Solveur dans le mode de la pièce** (`facesManuelles`) : ce qu'il valide est ce que l'écran
+      dessine.
+- [x] **Saisie** : champ « Pans (mm) », longueur de pli, matière ; « Nombre de plis » crée les
+      étapes qui manquent ; la grille PLIS suit Ordre auto, ↑/↓ et Trier.
+- [x] Divers : onglet 3D surligné, vues redessinées au redimensionnement, réglages machine
+      rechargés au changement de plieuse, garde tablier réglable, icône de l'exe, journal
+      d'erreurs (`%LocalAppData%\TolTem\SimulateurPliage\erreurs.log`).
 
 ---
 
 ## En cours / à faire côté UI
 
-- [ ] **Bouton Autotest** dans le panneau FICHIER (aujourd'hui l'autotest ne tourne qu'au banc).
-- [ ] **Alerte pupitre « pli n°1 »** : si l'opérateur change le premier pli (qui doit être le plus
-      fermé), afficher une alerte dure. La règle 7 doit être visible dans le pupitre, pas seulement
-      dans le solveur.
+- [x] **Alerte pupitre « pli n°1 »** : bannière rouge quand un pli aigu (≤ 45°) existe et n'est
+      pas en tête (`VuePupitre.MajAlertePremierPli`).
+- [ ] **Reprise au pupitre** : « + étape » prend le premier pli libre ou crée un pli ; aucun
+      bouton ne crée une 2ᵉ passe sur un pli déjà fait. Les reprises n'existent que par le JSON.
+
+## À trancher à l'atelier (constats du 03/10, code NON modifié)
+
+- [ ] **Collision tablier** (`Detecteur.HauteurAilesFormees`) : le verdict dépend du sens
+      d'écriture du profil. Équerre `50·300` → « tablier » ; la même écrite `300·50` → « propre ».
+      Côté amont, le calcul prend le pan `b` avec l'angle du pli `b-1` et compte l'aile vers le bas.
+- [ ] **Appui sur pli formé** : aligné sur `PanButee`, le libellé disparaît à l'étape 3 du Z laqué
+      (la butée lit le bord brut du 30) et apparaît aux étapes 2 et 4 du chéneau. À confirmer.
+- [ ] **Ordre auto sur le chéneau** : propose `10·100·150·30·40` (un ⇅). La gamme atelier
+      `10·100·30·40·200` (deux ⇅) passe derrière à cause du tri « moins de retournements d'abord ».
 
 ---
 

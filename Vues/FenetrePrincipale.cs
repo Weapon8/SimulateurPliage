@@ -26,17 +26,24 @@ namespace SimulateurPliage.Vues
         bool _machVerrouille = true;
         bool _machModifie;
         readonly System.Collections.Generic.List<NumericUpDown> _champsMachine = new();
+        // lecture de la cote affichée par chaque champ machine, pour les recharger quand on
+        // change de plieuse (sinon ils gardent les cotes de la machine précédente)
+        readonly System.Collections.Generic.List<Func<double>> _lecturesMachine = new();
         Button btnVerrou, btnValiderMachine;
         Label lblMachModifie;
         Panel machPanel;          // bloc machine repliable (en bas)
         Button btnMachHead;       // en-tête ▸/▾ du bloc machine
 
-        ComboBox cbMachine, cbPoincon, cbMatrice, cbCotes, cbProfils;
-        TextBox txtNom, txtChantier;
+        ComboBox cbMachine, cbPoincon, cbMatrice, cbCotes, cbProfils, cbMatiere;
+        TextBox txtNom, txtChantier, txtPans;
         readonly System.Collections.Generic.List<Profil> _profils = new();
-        NumericUpDown nNbPlis, nEpaisseur, nHauteurPoincon;
+        NumericUpDown nNbPlis, nEpaisseur, nHauteurPoincon, nLongPli;
         DataGridView dgPans;
-        readonly System.Collections.Generic.HashSet<int> _pansSurl = new();  // pans bordant le pli sélectionné
+        int _ligneSurl = -1;   // ligne de la grille PLIS à surligner = l'étape affichée
+
+        // Matières proposées : Rm en N/mm² (les valeurs de Piece.Rm). Sert au calcul de tonnage.
+        static readonly string[] MatiereNoms = { "Acier · Rm 450", "Inox · Rm 600", "Alu · Rm 250", "Zinc · Rm 150" };
+        static readonly double[] MatiereRm   = { 450, 600, 250, 150 };
         VueSection vueSection;
         VueDeveloppe vueDeveloppe;
         VuePupitre vuePupitre;
@@ -52,12 +59,16 @@ namespace SimulateurPliage.Vues
         public FenetrePrincipale()
         {
             Text = "Simulateur de pliage — collisions outillage · TolTem";
-            Width = 1320; Height = 860;
-            StartPosition = FormStartPosition.CenterScreen;
-            BackColor = Theme.Fond; ForeColor = Theme.Texte;
+            // AutoScaleDimensions AVANT Width/Height (règle des outils TolTem).
             Font = new Font("Segoe UI", 9);
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
+            Width = 1320; Height = 860;
+            MinimumSize = new Size(1000, 640);
+            StartPosition = FormStartPosition.CenterScreen;
+            BackColor = Theme.Fond; ForeColor = Theme.Texte;
+            // L'icône de la fenêtre = celle de l'exe (toltem.ico, posée par le .csproj).
+            try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
             atelier = Atelier.Charger();
             biblio = Bibliotheque.Charger();
@@ -103,6 +114,7 @@ namespace SimulateurPliage.Vues
             cbMachine = Combo(gauche, "Plieuse", Noms(atelier.Plieuses), 0, ref y, i =>
             {
                 plieuse = atelier.Plieuses[i];
+                RechargerChampsMachine();
                 vueSection.Outillage(plieuse, poincon, matrice, atelier.Embase);
                 vue3D.Outillage(plieuse, poincon, matrice, atelier.Embase);
                 Recalculer();
@@ -134,13 +146,43 @@ namespace SimulateurPliage.Vues
             cbCotes = Combo(gauche, "Cotes", new[] { "intérieures", "extérieures" }, 0, ref y,
                 i => { piece.CotesExterieures = i == 1; Recalculer(); });
 
+            // LES PANS, dans l'ordre du profil — comme on nomme une pièce à l'atelier :
+            // « 30 40 150 200 100 10 ». C'est le seul endroit où TOUS les pans se saisissent.
+            // La colonne R du pupitre ne montre que le pan calé en butée à chaque étape : selon
+            // la gamme, un pan n'y apparaît jamais (le 150 du chéneau) et ne pouvait donc être
+            // corrigé nulle part. Entrée ou sortie du champ = validé ; Échap = on annule.
+            gauche.Controls.Add(new Label { Text = "Pans (mm)", Left = 16, Top = y + 4, Width = 80, ForeColor = Theme.Texte });
+            txtPans = new TextBox
+            {
+                Left = 100, Top = y, Width = 238,
+                BackColor = Theme.Champ, ForeColor = Theme.Texte, BorderStyle = BorderStyle.FixedSingle
+            };
+            txtPans.KeyDown += (snd, ke) =>
+            {
+                if (ke.KeyCode == Keys.Enter) { ke.SuppressKeyPress = true; ValiderPans(true); }
+                else if (ke.KeyCode == Keys.Escape) { ke.SuppressKeyPress = true; AfficherPans(); }
+            };
+            txtPans.Leave += (snd, le) => ValiderPans(false);
+            new ToolTip().SetToolTip(txtPans,
+                "Les pans dans l'ordre du profil, séparés par un espace : 30 40 150 200 100 10\nEntrée = valider · Échap = annuler");
+            gauche.Controls.Add(txtPans);
+            y += 30;
+
+            // Longueur de pli et matière : le tonnage (machine et t/m du poinçon) et le contrôle
+            // 100–4050 mm en dépendent. Sans ces deux champs ils tournaient toujours sur 500 mm
+            // d'acier, quelle que soit la pièce.
+            nLongPli = Num(gauche, "Longueur de pli (mm)", piece.LongueurPli, 10, 6000, 50, 0, ref y,
+                v => { piece.LongueurPli = v; Recalculer(); });
+            cbMatiere = Combo(gauche, "Matière", MatiereNoms, IndexMatiere(piece.Rm), ref y,
+                i => { if (i >= 0 && i < MatiereRm.Length) { piece.Rm = MatiereRm[i]; Recalculer(); } });
+
             y = Titre(gauche, "PLIS", y);
             // RAPPEL, PAS SAISIE. Tout se tape au pupitre — c'est lui la CN. Cette grille
             // n'est là que pour avoir la longueur, l'angle et la face CÔTE À CÔTE sous les yeux :
             // personne ne pourra dire « j'avais pas vu ». Elle se met à jour toute seule à chaque
             // édition du pupitre et après un ordre auto (vuePupitre.Edited -> ChargerPans).
-            // Tout est en lecture seule : deux endroits pour saisir la même cote, c'est deux
-            // endroits pour se tromper.
+            // Longueur et angle sont en lecture seule : deux endroits pour saisir la même cote,
+            // c'est deux endroits pour se tromper. Seule la Face se bascule ici, d'un clic.
             dgPans = Grille(gauche, 150, ref y);
             dgPans.Columns.Add(Col("pli", "Pli", 40, true));
             dgPans.Columns.Add(Col("lg", "Longueur", 78, true));
@@ -157,7 +199,7 @@ namespace SimulateurPliage.Vues
             dgPans.CellFormatting += (s, e) =>
             {
                 if (e.RowIndex < 0) return;
-                bool sur = _pansSurl.Contains(e.RowIndex);
+                bool sur = e.RowIndex == _ligneSurl;
                 e.CellStyle.BackColor = sur ? Color.FromArgb(30, 52, 74) : Theme.Champ;
                 e.CellStyle.SelectionBackColor = sur ? Color.FromArgb(38, 62, 86) : Color.FromArgb(48, 56, 68);
                 e.CellStyle.ForeColor = sur ? Color.White : Theme.Texte;
@@ -200,8 +242,11 @@ namespace SimulateurPliage.Vues
             var bEnreg = Bouton("Enregistrer", 118, EnregistrerPiece);
             bEnreg.Left = 216; bEnreg.Top = y; gauche.Controls.Add(bEnreg);
             y += 34;
-            var bEnregSous = Bouton("Enregistrer sous…", 318, EnregistrerPieceSous);
+            var bEnregSous = Bouton("Enregistrer sous…", 196, EnregistrerPieceSous);
             bEnregSous.Left = 16; bEnregSous.Top = y; gauche.Controls.Add(bEnregSous);
+            // Autotest : les règles figées, contrôlées d'un clic dans l'exe (plus seulement au banc).
+            var bAutotest = Bouton("Autotest", 118, LancerAutotest);
+            bAutotest.Left = 216; bAutotest.Top = y; gauche.Controls.Add(bAutotest);
             y += 38;
 
             y = Titre(gauche, "PROFILS", y);
@@ -253,19 +298,22 @@ namespace SimulateurPliage.Vues
             });
 
             my = TitreVerrou(machPanel, "MACHINE — cotes", ref my);
-            NumMachine(machPanel, "Butée mini", plieuse.ButeeMin, ref my, v => plieuse.ButeeMin = v);
-            NumMachine(machPanel, "Butée maxi", plieuse.ButeeMax, ref my, v => plieuse.ButeeMax = v);
-            NumMachine(machPanel, "Hauteur libre", plieuse.HauteurLibre, ref my, v => plieuse.HauteurLibre = v);
-            NumMachine(machPanel, "Tablier déport", plieuse.TablierDeport, ref my, v => plieuse.TablierDeport = v);
-            NumMachine(machPanel, "Tonnage maxi (t)", plieuse.TonnageMax, ref my, v => plieuse.TonnageMax = v);
-            NumMachine(machPanel, "Doigt : hauteur", plieuse.DoigtHauteur, ref my, v => plieuse.DoigtHauteur = v);
-            NumMachine(machPanel, "Doigt : contact", plieuse.DoigtContact, ref my, v => plieuse.DoigtContact = v);
+            // Chaque champ lit ET écrit la plieuse COURANTE (le champ « plieuse », pas une
+            // copie prise à la construction) : au changement de machine on les recharge.
+            NumMachine(machPanel, "Butée mini", () => plieuse.ButeeMin, ref my, v => plieuse.ButeeMin = v);
+            NumMachine(machPanel, "Butée maxi", () => plieuse.ButeeMax, ref my, v => plieuse.ButeeMax = v);
+            NumMachine(machPanel, "Garde tablier", () => plieuse.TablierHauteur, ref my, v => plieuse.TablierHauteur = v);
+            NumMachine(machPanel, "Hauteur libre", () => plieuse.HauteurLibre, ref my, v => plieuse.HauteurLibre = v);
+            NumMachine(machPanel, "Tablier déport", () => plieuse.TablierDeport, ref my, v => plieuse.TablierDeport = v);
+            NumMachine(machPanel, "Tonnage maxi (t)", () => plieuse.TonnageMax, ref my, v => plieuse.TonnageMax = v);
+            NumMachine(machPanel, "Doigt : hauteur", () => plieuse.DoigtHauteur, ref my, v => plieuse.DoigtHauteur = v);
+            NumMachine(machPanel, "Doigt : contact", () => plieuse.DoigtContact, ref my, v => plieuse.DoigtContact = v);
 
             my = Titre(machPanel, "EMBASES", my);
-            NumMachine(machPanel, "Porte-poinçon H", atelier.Embase.PortePoinconH, ref my, v => atelier.Embase.PortePoinconH = v);
-            NumMachine(machPanel, "Porte-poinçon L", atelier.Embase.PortePoinconLg, ref my, v => atelier.Embase.PortePoinconLg = v);
-            NumMachine(machPanel, "Semelle H", atelier.Embase.SemelleH, ref my, v => atelier.Embase.SemelleH = v);
-            NumMachine(machPanel, "Semelle L", atelier.Embase.SemelleLg, ref my, v => atelier.Embase.SemelleLg = v);
+            NumMachine(machPanel, "Porte-poinçon H", () => atelier.Embase.PortePoinconH, ref my, v => atelier.Embase.PortePoinconH = v);
+            NumMachine(machPanel, "Porte-poinçon L", () => atelier.Embase.PortePoinconLg, ref my, v => atelier.Embase.PortePoinconLg = v);
+            NumMachine(machPanel, "Semelle H", () => atelier.Embase.SemelleH, ref my, v => atelier.Embase.SemelleH = v);
+            NumMachine(machPanel, "Semelle L", () => atelier.Embase.SemelleLg, ref my, v => atelier.Embase.SemelleLg = v);
             machPanel.Height = my + 8;
 
             AppliquerVerrouMachine();   // état initial : verrouillé
@@ -363,7 +411,10 @@ namespace SimulateurPliage.Vues
             vueSection.Outillage(plieuse, poincon, matrice, atelier.Embase);
                 vue3D.Outillage(plieuse, poincon, matrice, atelier.Embase);
 
-            vuePupitre.Edited += () => { ChargerPans(); Recalculer(); };
+            // Une saisie FAITE DANS le pupitre : on rafraîchit tout le reste, mais on ne
+            // reconstruit pas sa grille (elle est en pleine validation de cellule — voir
+            // VuePupitre.MettreAJourValeurs).
+            vuePupitre.Edited += () => { ChargerPans(); Recalculer(reconstruirePupitre: false); };
             vuePupitre.StepPicked += r => AllerEtape(r);
             vuePupitre.AddBendRequested += AjouterPli;
             vuePupitre.AddOpRequested += AjouterEtape;
@@ -390,7 +441,7 @@ namespace SimulateurPliage.Vues
         /// <summary>Onglet actif : fond accentue, bord orange. Les autres restent neutres.</summary>
         void MajOnglets(int actif)
         {
-            var l = new[] { ongletPupitre, ongletSection, ongletDeveloppe };
+            var l = new[] { ongletPupitre, ongletSection, ongletDeveloppe, onglet3D };
             for (int i = 0; i < l.Length; i++)
             {
                 if (l[i] == null) continue;
@@ -425,8 +476,98 @@ namespace SimulateurPliage.Vues
             while (piece.Segments.Count < pans) piece.Segments.Add(100);
             while (piece.Segments.Count > pans) piece.Segments.RemoveAt(piece.Segments.Count - 1);
             piece.Sequence.RemoveAll(o => o.Bend >= piece.NbPlis);
+            CompleterSequence();
             ChargerPans();
             Recalculer();
+        }
+
+        /// <summary>
+        /// Une opération pour chaque pli qui n'en a pas. Le pupitre et la grille PLIS affichent
+        /// une ligne par OPÉRATION : un pli sans opération n'apparaissait nulle part. Monter
+        /// « Nombre de plis » de 1 à 3 ajoutait deux pans invisibles, impossibles à régler.
+        /// </summary>
+        void CompleterSequence()
+        {
+            var faits = new HashSet<int>();
+            foreach (var o in piece.Sequence) if (o.Axe == 0) faits.Add(o.Bend);
+            for (int b = 0; b < piece.NbPlis; b++)
+                if (!faits.Contains(b))
+                    piece.Sequence.Add(new Operation { Bend = b, AngleCible = 90, Sens = Sens.Haut, V = VParDefaut() });
+        }
+
+        // ------------------------------------------------- saisie des pans --
+
+        static string PansEnTexte(Piece p)
+        {
+            var parts = new List<string>();
+            foreach (double v in p.Segments) parts.Add(v.ToString("0.###", CultureInfo.InvariantCulture));
+            return string.Join(" ", parts);
+        }
+
+        void AfficherPans()
+        {
+            if (txtPans == null) return;
+            bool avant = _load;
+            _load = true;
+            txtPans.Text = PansEnTexte(piece);
+            _load = avant;
+        }
+
+        /// <summary>« 30 40 150 200 100 10 » -> liste de pans. null si illisible.</summary>
+        static List<double> LirePansTexte(string texte)
+        {
+            var res = new List<double>();
+            var mots = (texte ?? "").Split(new[] { ' ', '\t', ';', '·', '/', '|' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (string m in mots)
+            {
+                if (!double.TryParse(m.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double v)) return null;
+                if (double.IsNaN(v) || double.IsInfinity(v) || v <= 0) return null;
+                res.Add(v);
+            }
+            return res;
+        }
+
+        /// <summary>
+        /// Applique les pans tapés. Même nombre de pans : seules les longueurs changent, la
+        /// gamme est conservée. Nombre différent : on ajuste les plis comme « Nombre de plis ».
+        /// </summary>
+        void ValiderPans(bool bavard)
+        {
+            if (_load || txtPans == null) return;
+            // Texte inchangé = rien à faire. Indispensable : sortir du champ sans rien taper ne
+            // doit pas réécrire les pans avec leur valeur ARRONDIE à l'affichage.
+            if (txtPans.Text.Trim() == PansEnTexte(piece)) return;
+            var vals = LirePansTexte(txtPans.Text);
+            int maxPans = (int)nNbPlis.Maximum + 1;
+            if (vals == null || vals.Count < 2 || vals.Count > maxPans)
+            {
+                if (bavard)
+                    MessageBox.Show("Pans illisibles.\n\nTape les longueurs dans l'ordre du profil, séparées par un espace"
+                        + $" (de 2 à {maxPans} pans, toutes > 0) :\n30 40 150 200 100 10",
+                        "Pans", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                AfficherPans();
+                return;
+            }
+
+            bool identique = vals.Count == piece.Segments.Count;
+            for (int i = 0; identique && i < vals.Count; i++)
+                if (Math.Abs(vals[i] - piece.Segments[i]) > 1e-9) identique = false;
+            if (identique) { AfficherPans(); return; }
+
+            piece.Segments.Clear();
+            piece.Segments.AddRange(vals);
+            piece.Sequence.RemoveAll(o => o.Bend >= piece.NbPlis);
+            CompleterSequence();
+            ChargerPans();
+            Recalculer();
+        }
+
+        int IndexMatiere(double rm)
+        {
+            int best = 0;
+            for (int i = 1; i < MatiereRm.Length; i++)
+                if (Math.Abs(MatiereRm[i] - rm) < Math.Abs(MatiereRm[best] - rm)) best = i;
+            return best;
         }
 
         /// <summary>Ajoute une ligne de pli (un pan de plus) et l'opération qui va avec.</summary>
@@ -529,11 +670,10 @@ namespace SimulateurPliage.Vues
             var faces = new int[n];
             var angles = new double[n];
             var vs = new double[n];
-            // ⚠️ LIMITE CONNUE : les faces viennent de piece.Faces, alimenté par AssurerForme
-            // depuis le drapeau Retournee de la séquence. Pour les démos et une pièce dont les
-            // retournements sont posés, c'est juste. Pour une pièce saisie de zéro sans faces
-            // définies, tout sera « même face » (false) et le solveur peut résoudre une pièce
-            // impossible (cf. Z spirale). La colonne Face éditable réglera ça (roadmap).
+            // Les faces viennent de piece.Faces : saisies dans la colonne Face (FacesManuelles),
+            // ou sinon déduites par AssurerForme du drapeau ⇅ de la séquence. Pour une pièce
+            // saisie de zéro, il FAUT renseigner les faces avant l'ordre auto : sans ça tout est
+            // « même face » et le solveur peut résoudre une pièce impossible (cf. Z spirale).
             for (int b = 0; b < n; b++)
             {
                 angles[b] = piece.Angles[b];
@@ -544,8 +684,11 @@ namespace SimulateurPliage.Vues
                 vs[b] = v;
             }
 
+            // On résout DANS LE MODE DE LA PIÈCE (faces saisies ou non) : le solveur teste alors
+            // chaque candidat exactement comme le moteur le dessinera une fois la gamme appliquée.
             var sols = Solveur.Resoudre(segments, faces, angles, vs, plieuse, poincon, matrice,
-                                        atelier.Embase, piece.Epaisseur, plieuse.ButeeMin);
+                                        atelier.Embase, piece.Epaisseur, plieuse.ButeeMin,
+                                        facesManuelles: piece.FacesManuelles);
 
             if (sols.Count == 0)
             {
@@ -557,10 +700,14 @@ namespace SimulateurPliage.Vues
             // meilleure solution = la 1re (le solveur trie déjà : fermé-d'abord, prise, manip)
             piece.Sequence = new List<Operation>(sols[0].Sequence);
             etape = 0;
-            foreach (var o in piece.Sequence)
+            // On compte les GESTES entre deux étapes — ce que la vue section affiche — pas les
+            // cases cochées : un ⇅ qui reste coché deux étapes de suite n'est qu'UN geste, et
+            // quand la face change c'est ⇅ tout seul (jamais ⇅ + ⇄ pour la même main).
+            for (int i = 1; i < piece.Sequence.Count; i++)
             {
-                if (o.ButeeAval) plat++;
-                if (o.Retournee) face++;
+                var a = piece.Sequence[i - 1]; var b = piece.Sequence[i];
+                if (a.Retournee != b.Retournee) face++;
+                else if (a.ButeeAval != b.ButeeAval) plat++;
             }
             Recalculer();
             return true;
@@ -627,7 +774,9 @@ namespace SimulateurPliage.Vues
         {
             try
             {
-                LirePans();
+                // (LirePans() a été retiré : la grille PLIS affiche des COTES DE BUTÉE par étape,
+                //  pas les pans. Les relire dans Segments abîmait la pièce à chaque Enregistrer —
+                //  le chéneau 30·40·150·200·100·10 était écrit 10·100·30·40·200·10.)
                 piece.NormaliserReprises();
                 PieceIO.Sauver(piece, chemin);
                 MajTitre();
@@ -650,6 +799,10 @@ namespace SimulateurPliage.Vues
                 nEpaisseur.Value = (decimal)Math.Max((double)nEpaisseur.Minimum,
                                     Math.Min((double)nEpaisseur.Maximum, piece.Epaisseur));
             if (cbCotes != null) cbCotes.SelectedIndex = piece.CotesExterieures ? 1 : 0;
+            if (nLongPli != null)
+                nLongPli.Value = (decimal)Math.Max((double)nLongPli.Minimum,
+                                  Math.Min((double)nLongPli.Maximum, piece.LongueurPli));
+            if (cbMatiere != null) cbMatiere.SelectedIndex = IndexMatiere(piece.Rm);
             if (txtNom != null) txtNom.Text = piece.Nom ?? "";
             if (txtChantier != null) txtChantier.Text = piece.Chantier ?? "";
             _load = false;
@@ -677,7 +830,6 @@ namespace SimulateurPliage.Vues
 
         void EnregistrerProfil()
         {
-            LirePans();
             piece.Nom = (txtNom?.Text ?? "").Trim();
             piece.Chantier = (txtChantier?.Text ?? "").Trim();
             if (piece.Nom.Length == 0)
@@ -685,6 +837,16 @@ namespace SimulateurPliage.Vues
                 MessageBox.Show("Donne un nom au profil avant de l'enregistrer.",
                     "Profils", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 txtNom?.Focus();
+                return;
+            }
+            // Le chantier « Références » porte les pièces étalons, figées dans l'exe : on n'y
+            // enregistre rien (elles sont remises à l'identique à chaque démarrage).
+            if (Bibliotheque.EstChantierReference(piece.Chantier))
+            {
+                MessageBox.Show("Le chantier « Références » est réservé aux pièces étalons.\n"
+                    + "Donne un autre nom de chantier (ou laisse-le vide) pour enregistrer ta pièce.",
+                    "Profils", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                txtChantier?.Focus();
                 return;
             }
             biblio.Enregistrer(piece, piece.Nom, piece.Chantier);
@@ -706,6 +868,9 @@ namespace SimulateurPliage.Vues
             }
             var p = biblio.Instancier(_profils[i]);
             if (p == null) return;
+            // Une référence chargée devient une pièce de travail ordinaire : on vide son
+            // chantier, pour qu'un Enregistrer crée TA copie au lieu de viser l'étalon.
+            if (Bibliotheque.EstReference(_profils[i])) p.Chantier = "";
             piece = p;
             _fichier = null;
             etape = 0;
@@ -717,6 +882,12 @@ namespace SimulateurPliage.Vues
             int i = cbProfils?.SelectedIndex ?? -1;
             if (i < 0 || i >= _profils.Count) return;
             var pr = _profils[i];
+            if (Bibliotheque.EstReference(pr))
+            {
+                MessageBox.Show("Les pièces de « Références » sont les étalons de l'atelier : elles ne se suppriment pas.",
+                    "Profils", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
             if (MessageBox.Show($"Supprimer le profil « {pr.Libelle} » ?", "Profils",
                     MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
             biblio.Supprimer(pr);
@@ -739,8 +910,11 @@ namespace SimulateurPliage.Vues
             int b = piece.Sequence[ligne].Bend;                   // le pli (bend) de cette étape
             if (b < 0 || b >= piece.Faces.Count) return;
 
-            piece.Faces[b] = !piece.Faces[b];                     // FNL <-> FL sur ce pli
-            piece.FacesManuelles = true;                          // désormais la saisie fait foi
+            // Première face saisie : on passe la pièce en « faces saisies » SANS rien bouger
+            // (Piece.FigerFaces recale les ⇄). Sinon ce clic changeait le côté de butée de tous
+            // les autres plis d'un coup.
+            piece.FigerFaces();
+            piece.Faces[b] = !piece.Faces[b];                     // FNL <-> FL sur ce pli, et lui seul
 
             ChargerPans();
             Recalculer();
@@ -752,39 +926,23 @@ namespace SimulateurPliage.Vues
             piece.AssurerForme();
             dgPans.Rows.Clear();
             // Une ligne = UN PLI (dans l'ordre de la séquence de pliage). La longueur affichée
-            // est la cote de butée du pli (le pan qu'on replie), calculée par le moteur — même
-            // valeur que le pupitre. Affichage seul : on ne modifie pas la pièce.
+            // est la cote de butée du pli (le pan calé contre les doigts) — Piece.CoteButee, la
+            // même règle que le moteur et le pupitre. Affichage seul : on ne modifie pas la pièce.
             for (int e = 0; e < piece.Sequence.Count; e++)
             {
                 var op = piece.Sequence[e];
                 int b = op.Bend;
                 bool okFace = b >= 0 && b < piece.Faces.Count;
-                double cote = piece.ButeeInt(CotePli(op));
                 dgPans.Rows.Add(
                     (e + 1).ToString(),
-                    cote.ToString("0.#", CultureInfo.InvariantCulture),
+                    piece.CoteButee(op).ToString("0.#", CultureInfo.InvariantCulture),
                     op.AngleCible.ToString("0.#", CultureInfo.InvariantCulture) + "\u00B0",
                     okFace ? (piece.Faces[b] ? "FL" : "FNL") : "—");
             }
             if (nNbPlis != null)
                 nNbPlis.Value = Math.Min(nNbPlis.Maximum, Math.Max(nNbPlis.Minimum, (decimal)piece.NbPlis));
+            AfficherPans();
             _load = false;
-        }
-
-        // Index du pan qu'on replie pour ce pli (= pan calé contre la butée). Même règle que
-        // le moteur : face FL -> amont, FNL -> aval, le retournement à plat ⇄ inverse.
-        int CotePli(Operation op)
-        {
-            bool litAmont = op.Bend < piece.Faces.Count && piece.FacesManuelles && piece.Faces[op.Bend];
-            if (op.ButeeAval) litAmont = !litAmont;
-            int idx = litAmont ? op.Bend : op.Bend + 1;
-            return Math.Min(Math.Max(0, idx), piece.Segments.Count - 1);
-        }
-
-        void LirePans()
-        {
-            for (int i = 0; i < dgPans.Rows.Count && i < piece.Segments.Count; i++)
-                piece.Segments[i] = Lire(dgPans.Rows[i].Cells["lg"].Value, piece.Segments[i]);
         }
 
         // ---------------------------------------------------- affichage --
@@ -802,23 +960,26 @@ namespace SimulateurPliage.Vues
             SurlignerPansDuPli(etape);
         }
 
-        // Surligne dans PANS les 2 pans qui bordent le pli de l'étape donnée
-        // (pli b = entre pan b et pan b+1).
+        // Surligne dans la grille PLIS la ligne de l'étape affichée. (Une ligne = une étape
+        // depuis que la grille liste les plis : l'ancien code surlignait les lignes « pan b »
+        // et « pan b+1 », donc pas la bonne.)
         void SurlignerPansDuPli(int etapeIdx)
         {
-            _pansSurl.Clear();
-            if (etapeIdx >= 0 && etapeIdx < piece.Sequence.Count)
-            {
-                int b = piece.Sequence[etapeIdx].Bend;
-                _pansSurl.Add(b);
-                _pansSurl.Add(b + 1);
-            }
+            _ligneSurl = (etapeIdx >= 0 && etapeIdx < piece.Sequence.Count) ? etapeIdx : -1;
             dgPans?.Invalidate();
         }
 
-        void Recalculer()
+        /// <param name="reconstruirePupitre">false quand la saisie vient du pupitre lui-même :
+        /// sa grille est mise à jour en place, jamais reconstruite pendant qu'elle valide une
+        /// cellule (sinon WinForms lève « reentrant call to SetCurrentCellAddressCore »).</param>
+        void Recalculer(bool reconstruirePupitre = true)
         {
             piece.NormaliserReprises();
+            // La grille PLIS liste les étapes DANS L'ORDRE DE LA GAMME : elle doit suivre tout ce
+            // qui change la séquence. Avant, Ordre auto, ↑ / ↓ et Trier ne la rechargeaient pas —
+            // elle restait sur l'ancien ordre pendant que le pupitre et l'écran montraient le
+            // nouveau. On la recharge ici, une fois pour toutes.
+            ChargerPans();
             _load = true;
             tbEtape.Maximum = Math.Max(0, piece.Sequence.Count - 1);
             etape = Math.Max(0, Math.Min(tbEtape.Maximum, etape));
@@ -827,8 +988,46 @@ namespace SimulateurPliage.Vues
 
             ListerSequence();
             Redessiner();
-            vuePupitre.Afficher(piece, etape, plieuse, poincon, matrice, atelier.Embase);
+            if (reconstruirePupitre)
+                vuePupitre.Afficher(piece, etape, plieuse, poincon, matrice, atelier.Embase);
+            else
+                vuePupitre.MettreAJourValeurs(etape);
             SurlignerPansDuPli(etape);
+        }
+
+        // ------------------------------------------------------ autotest --
+
+        /// <summary>
+        /// Lance le banc de contrôle interne (Pliage/Autotest.cs) et affiche son rapport.
+        /// Toujours sur l'outillage de référence — Loire Safe, Rolleri, matrice 2045 — celui
+        /// sur lequel les pièces étalons ont été validées, quel que soit le choix à l'écran.
+        /// </summary>
+        void LancerAutotest()
+        {
+            var mat = atelier.Matrices.Find(m => m.Nom.Contains("2045")) ?? atelier.Matrices[0];
+            string rapport;
+            try { rapport = Autotest.Executer(atelier.Plieuses[0], atelier.Poincons[0], mat, atelier.Embase); }
+            catch (Exception ex) { rapport = "ECHEC — l'autotest a planté :\r\n\r\n" + ex; }
+            bool ok = rapport.StartsWith("OK");
+
+            using var f = new Form
+            {
+                Text = ok ? "Autotest — les règles tiennent" : "Autotest — ÉCHEC",
+                Width = 760, Height = 680, StartPosition = FormStartPosition.CenterParent,
+                BackColor = Theme.Fond, ForeColor = Theme.Texte, Font = Font,
+                ShowInTaskbar = false, MinimizeBox = false, ShowIcon = false
+            };
+            var t = new TextBox
+            {
+                Multiline = true, ReadOnly = true, WordWrap = false, Dock = DockStyle.Fill,
+                ScrollBars = ScrollBars.Both, BorderStyle = BorderStyle.None,
+                BackColor = Theme.Champ, ForeColor = ok ? Theme.Texte : Theme.Alerte,
+                Font = new Font("Consolas", 9.5f),
+                Text = rapport.Replace("\r\n", "\n").Replace("\n", "\r\n")
+            };
+            f.Controls.Add(t);
+            f.Shown += (snd, ev) => t.Select(0, 0);
+            f.ShowDialog(this);
         }
 
         void Redessiner()
@@ -1043,13 +1242,13 @@ namespace SimulateurPliage.Vues
             return n;
         }
 
-        void NumMachine(Panel p, string lab, double v, ref int y, Action<double> onChange)
+        void NumMachine(Panel p, string lab, Func<double> lire, ref int y, Action<double> onChange)
         {
             p.Controls.Add(new Label { Text = lab, Left = 24, Top = y + 4, Width = 164, ForeColor = Theme.Discret });
             var n = new NumericUpDown
             {
                 Left = 190, Top = y, Width = 148, Minimum = 0, Maximum = 5000,
-                DecimalPlaces = 1, Increment = 1, Value = (decimal)v,
+                DecimalPlaces = 1, Increment = 1, Value = BornerMachine(lire()),
                 BackColor = Theme.Champ, ForeColor = Theme.Texte, BorderStyle = BorderStyle.FixedSingle
             };
             n.ValueChanged += (s, e) =>
@@ -1061,8 +1260,23 @@ namespace SimulateurPliage.Vues
                 Recalculer();
             };
             _champsMachine.Add(n);
+            _lecturesMachine.Add(lire);
             p.Controls.Add(n);
             y += 28;
+        }
+
+        // une cote hors 0–5000 dans un atelier.json retouché ne doit pas planter le champ
+        static decimal BornerMachine(double v)
+            => (decimal)Math.Max(0, Math.Min(5000, double.IsNaN(v) ? 0 : v));
+
+        /// <summary>Remet dans les champs les cotes de la plieuse courante (changement de machine).</summary>
+        void RechargerChampsMachine()
+        {
+            bool avant = _load;
+            _load = true;
+            for (int i = 0; i < _champsMachine.Count && i < _lecturesMachine.Count; i++)
+                _champsMachine[i].Value = BornerMachine(_lecturesMachine[i]());
+            _load = avant;
         }
 
         ComboBox Combo(Panel p, string lab, string[] items, int sel, ref int y, Action<int> onChange)

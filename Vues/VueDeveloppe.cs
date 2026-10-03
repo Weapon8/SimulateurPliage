@@ -20,6 +20,7 @@ namespace SimulateurPliage.Vues
         public VueDeveloppe()
         {
             DoubleBuffered = true;
+            ResizeRedraw = true;      // l'échelle dépend de la largeur : tout redessiner au resize
             BackColor = Theme.Fond;
         }
 
@@ -36,6 +37,13 @@ namespace SimulateurPliage.Vues
             var g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.Clear(Theme.Fond);
+
+            // Pinceaux de texte : créés une fois par dessin et libérés à la sortie. Avant, chaque
+            // DrawString en créait un neuf sans jamais le libérer (fuite de handles GDI).
+            using var bAccent = new SolidBrush(Theme.Accent);
+            using var bDiscret = new SolidBrush(Theme.Discret);
+            using var bTexte = new SolidBrush(Theme.Texte);
+            using var bAlerte = new SolidBrush(Theme.Alerte);
 
             if (piece == null || piece.Segments.Count == 0) { Centre(g, "Ajoute des pans"); return; }
             double total = piece.Developpe;
@@ -67,12 +75,12 @@ namespace SimulateurPliage.Vues
             float X(double mm) => (float)(mL + mm * sc);
 
             using (var ft = new Font("Segoe UI", 11, FontStyle.Bold))
-                g.DrawString("DÉVELOPPÉ — tôle à plat", ft, new SolidBrush(Theme.Accent), mL, 14);
+                g.DrawString("DÉVELOPPÉ — tôle à plat", ft, bAccent, mL, 14);
 
             int nFlips = 0; foreach (var b in retourne) if (b) nFlips++;
             using (var f = new Font("Segoe UI", 9))
                 g.DrawString($"L développé {total:0} mm   ·   {nSeg} pans   ·   {nb} plis   ·   {nFlips} retournement(s)",
-                    f, new SolidBrush(Theme.Discret), mL, 40);
+                    f, bDiscret, mL, 40);
 
             Color face = flipCourant ? Theme.Alerte : Theme.Tole;
             using (var b = new SolidBrush(Color.FromArgb(48, face)))
@@ -87,7 +95,7 @@ namespace SimulateurPliage.Vues
                     float xm = X((cum[i] + cum[i + 1]) / 2);
                     string t = piece.Segments[i].ToString("0.#", CultureInfo.InvariantCulture);
                     var sz = g.MeasureString(t, f);
-                    g.DrawString(t, f, new SolidBrush(Theme.Texte), xm - sz.Width / 2, y1 + 8);
+                    g.DrawString(t, f, bTexte, xm - sz.Width / 2, y1 + 8);
                     g.DrawLine(pn, X(cum[i]) + 2, y1 + 20, X(cum[i + 1]) - 2, y1 + 20);
                 }
 
@@ -107,13 +115,13 @@ namespace SimulateurPliage.Vues
                 using var f1 = new Font("Consolas", 9, FontStyle.Bold);
                 using var f2 = new Font("Consolas", 8);
                 var s1 = g.MeasureString(lab, f1);
-                g.DrawString(lab, f1, new SolidBrush(act ? Theme.Accent : Theme.Texte), x - s1.Width / 2, y0 - 32);
+                g.DrawString(lab, f1, act ? bAccent : bTexte, x - s1.Width / 2, y0 - 32);
                 var s2 = g.MeasureString(sub, f2);
-                g.DrawString(sub, f2, new SolidBrush(fl ? Theme.Alerte : Theme.Discret), x - s2.Width / 2, y0 - 18);
+                g.DrawString(sub, f2, fl ? bAlerte : bDiscret, x - s2.Width / 2, y0 - 18);
 
                 if (fl)
                     using (var fr = new Font("Segoe UI", 8, FontStyle.Bold))
-                        g.DrawString("⟲", fr, new SolidBrush(Theme.Alerte), x - 6, y1 + 34);
+                        g.DrawString("⟲", fr, bAlerte, x - 6, y1 + 34);
             }
 
             if (flipCourant)
@@ -124,12 +132,12 @@ namespace SimulateurPliage.Vues
                 var r = new RectangleF((Width - sz.Width) / 2 - 12, Height - 54, sz.Width + 24, 34);
                 using (var b = new SolidBrush(Color.FromArgb(40, Theme.Alerte))) g.FillRectangle(b, r);
                 using (var pn = new Pen(Theme.Alerte, 1.4f)) g.DrawRectangle(pn, r.X, r.Y, r.Width, r.Height);
-                g.DrawString(t, fb, new SolidBrush(Theme.Alerte), r.X + 12, r.Y + 7);
+                g.DrawString(t, fb, bAlerte, r.X + 12, r.Y + 7);
             }
 
             using (var f = new Font("Segoe UI", 8.5f))
                 g.DrawString("bleu = face de référence · rouge pointillé = pli en retournement · orange = pli actif",
-                    f, new SolidBrush(Theme.Discret), mL, Height - 22);
+                    f, bDiscret, mL, Height - 22);
         }
 
         Operation DernierOp(int bend)
@@ -143,8 +151,9 @@ namespace SimulateurPliage.Vues
         void Centre(Graphics g, string t)
         {
             using var f = new Font("Segoe UI", 11);
+            using var b = new SolidBrush(Theme.Discret);
             var sz = g.MeasureString(t, f);
-            g.DrawString(t, f, new SolidBrush(Theme.Discret), (Width - sz.Width) / 2, (Height - sz.Height) / 2);
+            g.DrawString(t, f, b, (Width - sz.Width) / 2, (Height - sz.Height) / 2);
         }
     }
 }

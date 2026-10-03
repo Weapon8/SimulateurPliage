@@ -122,6 +122,83 @@ namespace SimulateurPliage.Pliage
             Segments[i] = CotesExterieures ? Math.Max(0, r) + Epaisseur : Math.Max(0, r);
         }
 
+        /// <summary>
+        /// LA RÈGLE « quel pan est calé contre la butée » — écrite UNE SEULE FOIS, ici.
+        /// Tout le monde la lit : le moteur (dessin + cote), le solveur, le pupitre (colonne R),
+        /// la grille PLIS, la vue section (prise opérateur, appui). Avant, elle était recopiée
+        /// à quatre endroits avec deux conventions : la grille, le pupitre et l'écran ne
+        /// donnaient pas la même cote pour le même pli.
+        ///
+        ///   Faces saisies (FacesManuelles) : pli intérieur FNL -> pan AVAL · pli extérieur FL
+        ///                                    -> pan AMONT · le retournement à plat ⇄ inverse.
+        ///   Sinon (démos, anciens fichiers) : pan AMONT, ou AVAL si ⇄.
+        ///
+        /// Rend l'index du pan (pli b = entre pan b et pan b+1). Version statique pour le
+        /// solveur, qui raisonne sur des tableaux et pas sur une Piece.
+        /// </summary>
+        public static int PanButee(int bend, bool faceFL, bool buteeAval, bool facesManuelles)
+        {
+            bool amont = facesManuelles ? (faceFL != buteeAval) : !buteeAval;
+            return amont ? bend : bend + 1;
+        }
+
+        /// <summary>Index du pan calé contre la butée pour cette opération (borné aux pans existants).</summary>
+        public int PanButee(Operation op)
+        {
+            if (op == null || Segments.Count == 0) return 0;
+            bool fl = op.Bend >= 0 && op.Bend < Faces.Count && Faces[op.Bend];
+            int idx = PanButee(op.Bend, fl, op.ButeeAval, FacesManuelles);
+            return Math.Max(0, Math.Min(idx, Segments.Count - 1));
+        }
+
+        /// <summary>Cote lue à la butée pour cette opération (toujours en intérieur).</summary>
+        public double CoteButee(Operation op) => ButeeInt(PanButee(op));
+
+        /// <summary>
+        /// Passe la pièce en « faces saisies » SANS RIEN BOUGER à l'écran.
+        ///
+        /// Le drapeau ⇄ ne veut pas dire la même chose dans les deux modes : en ancien mode
+        /// « ⇄ = la butée lit l'aval », en faces saisies « ⇄ = l'inverse de ce que dit la
+        /// face ». Basculer FacesManuelles d'un coup changeait donc le côté de butée de TOUS
+        /// les plis FNL — un clic sur une case Face du chevêtre faisait passer la gamme de
+        /// 20·20·40·100 à 40·40·100·40. Ici on fige d'abord les faces déduites de la séquence,
+        /// puis on recale chaque ⇄ pour que chaque pli garde exactement le pan qu'il lisait.
+        /// Après ça, changer UNE face ne change que CE pli — c'est ce que l'opérateur attend.
+        /// </summary>
+        public void FigerFaces()
+        {
+            if (FacesManuelles) return;
+            AssurerForme();                                   // Faces <- séquence, une dernière fois
+            var avant = new int[Sequence.Count];
+            for (int i = 0; i < Sequence.Count; i++) avant[i] = PanButee(Sequence[i]);
+            FacesManuelles = true;
+            for (int i = 0; i < Sequence.Count; i++)
+            {
+                var op = Sequence[i];
+                if (op.Axe != 0) continue;                    // les autres axes ont leur propre bande
+                if (PanButee(op) != avant[i]) op.ButeeAval = !op.ButeeAval;
+            }
+        }
+
+        /// <summary>
+        /// Remet d'aplomb une pièce lue dans un fichier : un JSON retouché à la main peut
+        /// porter des listes nulles ou des opérations qui pointent hors des plis. Sans ça,
+        /// l'appli plante à l'ouverture au lieu de dire ce qui ne va pas.
+        /// </summary>
+        public void Assainir()
+        {
+            Nom ??= ""; Chantier ??= "";
+            Segments ??= new();
+            Angles ??= new();
+            Faces ??= new();
+            Sequence ??= new();
+            AxesSecondaires ??= new();
+            AxesSecondaires.RemoveAll(a => a == null);
+            foreach (var a in AxesSecondaires) a.Assainir();
+            Sequence.RemoveAll(o => o == null || o.Bend < 0 || o.Bend >= Bande(o.Axe).NbPlis);
+            NormaliserReprises();
+        }
+
         /// <summary>Une entrée d'Angles et de Faces par pli. Si une séquence existe
         /// (démo, fichier ancien), elle fait foi : on en déduit la forme.</summary>
         public void AssurerForme()
@@ -192,20 +269,8 @@ namespace SimulateurPliage.Pliage
         }
 
         /// <summary>
-        /// Index de la ligne de pli qui vient EN APPUI contre le doigt de butée à l'étape s,
-        /// ou -1 si c'est un simple bord de tôle qui touche.
-        ///
-        /// La butée lit le pan amont (ou l'aval si la pièce est présentée bout pour bout).
-        /// Si ce pan porte à son extrémité un pli DÉJÀ formé, c'est ce retour qui vient contre
-        /// le doigt — pas le bord brut. C'est le « pli à la butée » de l'opérateur : le 25 qui
-        /// s'appuie sur le retour du 10, le 40 qui bute contre le retour du 20, le 100 contre
-        /// celui du 40. Ce n'est PAS un retournement : on pousse, c'est tout.
-        /// </summary>
-        /// <summary>
-        /// Face VISIBLE dessus à une étape donnée, pour l'affichage (couleur bleu/violet).
-        /// Elle bascule à CHAQUE retournement dessus/dessous ⇅ cumulé depuis le début : on
-        /// part de la face de référence (FNL) dessus, chaque ⇅ inverse. Deux ⇅ ramènent la
-        /// face de départ. C'est la parité des retournements, pas le drapeau de l'étape seule.
+        /// Face VISIBLE dessus à une étape donnée, pour l'affichage (couleur bleu/violet) :
+        /// c'est la FACE DÉCLARÉE du pli qu'on y forme (donnée de la pièce, lue au dessin).
         /// Retour : true = FNL dessus (bleu), false = FL dessus (violet).
         /// </summary>
         public bool FaceDessusFNL(int etape)
@@ -220,20 +285,30 @@ namespace SimulateurPliage.Pliage
             return !Faces[b];        // Faces[b]=true => FL dessus (violet) => renvoie false
         }
 
+        /// <summary>
+        /// Index de la ligne de pli qui vient EN APPUI contre le doigt de butée à l'étape s,
+        /// ou -1 si c'est un simple bord de tôle qui touche.
+        ///
+        /// Si le pan calé contre la butée porte à son extrémité un pli DÉJÀ formé, c'est ce
+        /// retour qui vient contre le doigt — pas le bord brut. C'est le « pli à la butée » de
+        /// l'opérateur : le 25 qui s'appuie sur le retour du 10, le 40 qui bute contre le
+        /// retour du 20, le 100 contre celui du 40. Ce n'est PAS un retournement : on pousse.
+        ///
+        /// Le côté butée vient de PanButee() — la même règle que la cote et le dessin. Avant,
+        /// cette fonction avait sa propre règle (⇄ puis ⇅) qui ne suivait pas les faces : sur
+        /// le Z laqué elle annonçait un appui à l'étape 3 alors que la butée lit le bord brut
+        /// du 30, et elle ratait ceux du chéneau.
+        /// </summary>
         public int PliAppui(int s)
         {
             if (s < 0 || s >= Sequence.Count) return -1;
             var op = Sequence[s];
-            // Le pli d'appui est le voisin DÉJÀ FORMÉ situé du CÔTÉ BUTÉE. Le côté butée dépend
-            // de deux choses : le retournement à plat ⇄ (ButeeAval) ET le retournement
-            // dessus/dessous ⇅ (Retournee) — chacun inverse le côté. Sans retournement, le
-            // voisin d'appui est en amont (Bend-1) ; chaque retournement bascule de côté.
-            bool cotéAval = op.ButeeAval;
-            if (op.Retournee) cotéAval = !cotéAval;          // ⇅ inverse aussi le côté d'appui
-            int voisin = cotéAval ? op.Bend + 1 : op.Bend - 1;
+            int pan = PanButee(op);
+            // pan amont (= Bend) : son autre bout est le pli Bend-1 ; pan aval : le pli Bend+1.
+            int voisin = pan <= op.Bend ? op.Bend - 1 : op.Bend + 1;
             if (voisin < 0 || voisin >= NbPlis) return -1;
             for (int i = 0; i < s; i++)
-                if (Sequence[i].Bend == voisin) return voisin;   // déjà formé => il fait l'appui
+                if (Sequence[i].Axe == op.Axe && Sequence[i].Bend == voisin) return voisin;   // déjà formé => il fait l'appui
             return -1;
         }
 

@@ -45,10 +45,18 @@ namespace SimulateurPliage.Pliage
         /// <param name="faceParPli">face de chaque pli (0 = référence, 1 = opposée), indexée par n° de ligne</param>
         /// <param name="anglesParPli">angle intérieur cible de chaque pli</param>
         /// <param name="vParPli">ouverture matrice de chaque pli (peut être null → 16)</param>
+        /// <param name="facesManuelles">
+        /// true = la pièce est en « faces saisies » : le côté de butée suit la FACE (FNL -> aval,
+        /// FL -> amont, ⇄ inverse), exactement comme le moteur la dessinera. À passer tel quel
+        /// depuis Piece.FacesManuelles. Avant, le solveur testait TOUJOURS en ancien mode : sur
+        /// une pièce à faces saisies il validait une gamme et l'écran en dessinait une autre
+        /// (chéneau : butées 100·200·40·200·40 à l'écran au lieu des cotes qu'il avait testées).
+        /// </param>
         public static List<SolutionPliage> Resoudre(
             List<double> segments, int[] faceParPli, double[] anglesParPli, double[] vParPli,
             Plieuse plieuse, Poincon poincon, Matrice matrice, Embase embase,
-            double epaisseur = 1.0, double buteeMini = 10.2, int maxRetournes = 3, int maxSolutions = 30)
+            double epaisseur = 1.0, double buteeMini = 10.2, int maxRetournes = 3, int maxSolutions = 30,
+            bool facesManuelles = false)
         {
             if (!EntreeValide(segments, faceParPli, anglesParPli)) return new List<SolutionPliage>();
 
@@ -66,7 +74,7 @@ namespace SimulateurPliage.Pliage
             void Dfs(int nbFaits, int parite, int retournes)
             {
                 if (++gardeFou > 200000) return;                 // sécurité anti-explosion
-                if (nbFaits == n) { brutes.Add(Materialiser(seq, segments, anglesParPli, vParPli, retournes)); return; }
+                if (nbFaits == n) { brutes.Add(Materialiser(seq, segments, anglesParPli, vParPli, retournes, facesManuelles)); return; }
 
                 for (int k = 0; k < n; k++)
                 {
@@ -94,10 +102,12 @@ namespace SimulateurPliage.Pliage
                         if (!vu.TryGetValue(cle, out bool viable))
                         {
                             double vOuv = VDe(matrice, vParPli, k);
-                            viable = CalageOk(segments, faits, k, aval, vOuv, buteeMini);
+                            int panLu = Piece.PanButee(k, faceParPli[k] == 1, aval, facesManuelles);
+                            viable = CalageOk(segments, k, panLu, vOuv, buteeMini);
                             if (viable)
                             {
-                                var test = SousPiece(segments, epaisseur, seq, k, parite, aval, anglesParPli, vParPli);
+                                var test = SousPiece(segments, epaisseur, seq, k, parite, aval, anglesParPli, vParPli,
+                                                     faceParPli, facesManuelles);
                                 var etat = Moteur.Construire(test, test.Sequence.Count - 1,
                                                              plieuse, poincon, matrice, embase);
                                 viable = !etat.Bloque;          // collision bloquante → branche morte
@@ -190,9 +200,8 @@ namespace SimulateurPliage.Pliage
         }
 
         /// <summary>Règles de calage métier : flan mini pour former, pan porteur de retour, butée mini.</summary>
-        static bool CalageOk(List<double> segs, bool[] faits, int k, bool aval, double vOuv, double buteeMini)
+        static bool CalageOk(List<double> segs, int k, int panLu, double vOuv, double buteeMini)
         {
-            int n = segs.Count - 1;
             double amont = segs[k], avalPan = segs[k + 1];
             double epaule = vOuv / 2.0 + MargeEpaule;
 
@@ -202,9 +211,9 @@ namespace SimulateurPliage.Pliage
             // Pas de règle « 25 mini sur un pan qui porte un retour » : le détecteur la trouve
             // tout seul et mieux (deux 10 refusés à 45/60/90, acceptés à 120/150/170).
 
-            // 3. caler en butée : le pan lu (amont, ou aval si bout pour bout) >= butée mini,
+            // 3. caler en butée : le pan lu (celui que donne Piece.PanButee) >= butée mini,
             //    avec la même tolérance que le Detecteur (un pan de 10 se cale en vrai).
-            double lu = aval ? avalPan : amont;
+            double lu = segs[Math.Max(0, Math.Min(panLu, segs.Count - 1))];
             if (lu < buteeMini - Detecteur.TolButee) return false;
 
             return true;
@@ -212,8 +221,10 @@ namespace SimulateurPliage.Pliage
 
         /// <summary>
         /// Ce que l'OPÉRATEUR tient devant lui, en mm de développé. Le Moteur range le pan
-        /// côté butée à droite et le formage à gauche (opérateur) : donc l'opérateur tient
-        /// l'aval en engagement direct, l'amont si la pièce est retournée bout pour bout (⇄).
+        /// côté butée à droite et le formage à gauche (opérateur) : l'opérateur tient donc
+        /// tout ce qui est du côté OPPOSÉ au pan de butée. Le paramètre « aval » veut dire
+        /// « la butée lit le pan AVAL » — pas « la case ⇄ est cochée » : en faces saisies ce
+        /// n'est pas la même chose. Depuis une Piece, passer par la surcharge du dessous.
         /// RÈGLE MÉTIER (Weapon) : « toujours le plus grand côté vers l'opérateur quand c'est
         /// possible ». Tenir un bout de 20 mm, c'est les doigts au poinçon — jamais avec un
         /// intérimaire. Quand on n'a pas le choix, on passe un bras derrière pour soulager au
@@ -227,6 +238,14 @@ namespace SimulateurPliage.Pliage
             return s;
         }
 
+        /// <summary>Prise opérateur d'une opération, côté de butée lu dans Piece.PanButee.</summary>
+        public static double PriseOperateur(Piece p, Operation op)
+        {
+            if (p == null || op == null) return 0;
+            var bande = p.Bande(op.Axe);
+            return PriseOperateur(bande.Segments, op.Bend, bande.PanButee(op) > op.Bend);
+        }
+
         static double VDe(Matrice m, double[] vs, int k)
         {
             double v = (vs != null && k < vs.Length && vs[k] > 0) ? vs[k] : 16;
@@ -235,10 +254,18 @@ namespace SimulateurPliage.Pliage
 
         static Piece SousPiece(List<double> segments, double ep,
             List<(int bend, int face, bool aval)> seq, int kAjout, int pariteAjout, bool avalAjout,
-            double[] angles, double[] vs)
+            double[] angles, double[] vs, int[] faceParPli, bool facesManuelles)
         {
             var p = new Piece { Epaisseur = ep };
             p.Segments.AddRange(segments);
+            // Même mode que la pièce affichée : le moteur dessinera et cotera ce candidat
+            // EXACTEMENT comme il le fera à l'écran une fois la gamme appliquée.
+            if (facesManuelles)
+            {
+                p.FacesManuelles = true;
+                for (int i = 0; i < segments.Count - 1; i++)
+                    p.Faces.Add(i < faceParPli.Length && faceParPli[i] == 1);
+            }
             foreach (var (bend, face, aval) in seq) AjouterOp(p, bend, face, aval, angles, vs);
             AjouterOp(p, kAjout, pariteAjout, avalAjout, angles, vs);
             return p;
@@ -258,7 +285,7 @@ namespace SimulateurPliage.Pliage
         }
 
         static SolutionPliage Materialiser(List<(int bend, int face, bool aval)> seq,
-            List<double> segments, double[] angles, double[] vs, int retournes)
+            List<double> segments, double[] angles, double[] vs, int retournes, bool facesManuelles)
         {
             var sol = new SolutionPliage { Retournes = retournes, PriseMini = double.MaxValue };
             var parts = new List<string>();
@@ -277,9 +304,13 @@ namespace SimulateurPliage.Pliage
                 sol.Sequence.Add(op);
                 if (dernierAval.HasValue && dernierAval.Value != aval) chg++;
                 dernierAval = aval;
-                double prise = PriseOperateur(segments, bend, aval);
+                int panLu = Piece.PanButee(bend, face == 1, aval, facesManuelles);
+                double prise = PriseOperateur(segments, bend, panLu > bend);
                 if (prise < sol.PriseMini) sol.PriseMini = prise;
-                parts.Add($"pli {bend + 1} · {op.AngleCible:0}° · {(aval ? "⇄ aval" : "amont")}{(op.Retournee ? " · ⇅" : "")} · prise {prise:0}");
+                string cote = facesManuelles
+                    ? $"butée {segments[Math.Max(0, Math.Min(panLu, segments.Count - 1))]:0.#}{(aval ? " · ⇄" : "")}"
+                    : (aval ? "⇄ aval" : "amont");
+                parts.Add($"pli {bend + 1} · {op.AngleCible:0}° · {cote}{(op.Retournee ? " · ⇅" : "")} · prise {prise:0}");
             }
             if (sol.PriseMini == double.MaxValue) sol.PriseMini = 0;
             sol.ChangementsSens = chg;

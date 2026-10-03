@@ -46,9 +46,10 @@ namespace SimulateurPliage.Pliage
             // ou une séquence qui déborde du nombre de plis.
             if (p.Segments == null || p.Segments.Count < 2)
                 throw new InvalidDataException("Pièce sans pans exploitables.");
-            p.Sequence ??= new();
-            p.Sequence.RemoveAll(o => o == null || o.Bend < 0 || o.Bend >= p.NbPlis);
-            p.NormaliserReprises();
+            foreach (double s in p.Segments)
+                if (double.IsNaN(s) || double.IsInfinity(s) || s <= 0)
+                    throw new InvalidDataException("Un pan a une longueur nulle ou illisible.");
+            p.Assainir();      // listes nulles, opérations hors plis, reprises
             return p;
         }
     }

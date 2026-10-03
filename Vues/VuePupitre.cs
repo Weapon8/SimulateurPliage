@@ -162,11 +162,12 @@ namespace SimulateurPliage.Vues
 
             dg.CellValueChanged += (s, e) =>
             {
-                if (_load || e.RowIndex < 0) return;
-                ReadBack();
-                RecalcHits();
-                UpdateFoot();
-                Edited?.Invoke();       // MainForm rafraichit l'AUTRE grille, pas celle-ci
+                if (_load || e.RowIndex < 0 || e.ColumnIndex < 0) return;
+                ReadBack(e.RowIndex, dg.Columns[e.ColumnIndex].Name);
+                // La fenetre rafraichit les AUTRES vues, puis appelle MettreAJourValeurs() sur
+                // celle-ci. Elle ne doit JAMAIS appeler Afficher()/Rebuild() d'ici : on est en
+                // plein dans la validation de la cellule (voir MettreAJourValeurs).
+                Edited?.Invoke();
             };
 
             // ✕ en bout de ligne
@@ -303,11 +304,12 @@ namespace SimulateurPliage.Vues
         {
             if (dg == null || r < 0 || r >= dg.Rows.Count) return;
             _load = true;
-            var mode = dg.EditMode;
-            dg.EditMode = DataGridViewEditMode.EditProgrammatically;
-            dg.CurrentCell = dg.Rows[r].Cells["r"];
-            dg.EditMode = mode;
-            _load = false;
+            try
+            {
+                dg.EditMode = DataGridViewEditMode.EditProgrammatically;
+                dg.CurrentCell = dg.Rows[r].Cells["r"];
+            }
+            finally { dg.EditMode = DataGridViewEditMode.EditOnEnter; _load = false; }
         }
 
         // ---- changement de STRUCTURE : on reconstruit les lignes ----
@@ -316,6 +318,54 @@ namespace SimulateurPliage.Vues
             piece = p; cur = step; plieuse = pl; poincon = po; matrice = ma; embase = em;
             Rebuild();
         }
+
+        // ---- une VALEUR a change, saisie DANS cette grille : on ne reconstruit PAS ----
+        //
+        // Quand l'operateur valide une cellule texte (R, ANGLE) en passant a une autre case
+        // (clic, Tab, Entree, fleches), WinForms est au milieu d'un changement de cellule
+        // courante. Reconstruire les lignes a ce moment-la (Rows.Clear, CurrentCell = null)
+        // leve « Operation is not valid because it results in a reentrant call to the
+        // SetCurrentCellAddressCore function » — et l'ancien code le faisait a chaque saisie
+        // (Edited -> Recalculer -> Afficher -> Rebuild). Ici on met a jour les cases EN PLACE :
+        // aucune ligne detruite, la cellule courante ne bouge pas, rien de reentrant.
+        // La structure (nombre et ordre des lignes) n'a pas change : une saisie ne modifie
+        // qu'une valeur. Tout ce qui change la structure passe par Afficher().
+        public void MettreAJourValeurs(int step)
+        {
+            if (piece == null) return;
+            cur = step;
+            int n = piece.Sequence.Count;
+            if (dg.Rows.Count != n + 1) return;        // structure differente : Afficher() s'en charge
+
+            _load = true;
+            try
+            {
+                for (int i = 0; i < n; i++)
+                {
+                    var o = piece.Sequence[i];
+                    Poser(dg.Rows[i].Cells["r"], TexteR(piece.CoteButee(o)));
+                    Poser(dg.Rows[i].Cells["ang"], TexteAngle(o.AngleCible));
+                    Poser(dg.Rows[i].Cells["rep"], o.Reprise);
+                }
+                Poser(dg.Rows[n].Cells["r"], TexteR(piece.ButeeInt(piece.NbPlis)));
+                UpdateFoot();
+            }
+            finally { _load = false; }
+
+            RecalcHits();
+            dg.Invalidate();
+        }
+
+        // n'ecrit que si la valeur change : pas de repaint ni d'evenement pour rien
+        static void Poser(DataGridViewCell c, object v)
+        {
+            if (!Equals(c.Value, v)) c.Value = v;
+        }
+
+        static string TexteR(double mm) => mm.ToString("0.0", CultureInfo.InvariantCulture);
+
+        // "0.#" et pas "0" : un 88,5 doit survivre a un aller-retour par la grille
+        static string TexteAngle(double deg) => deg.ToString("0.#", CultureInfo.InvariantCulture);
 
         // ---- changement d'ETAPE seul : on recalcule les couleurs et on repeint ----
         public void ChangerEtape(int step)
@@ -397,7 +447,6 @@ namespace SimulateurPliage.Vues
         {
             if (piece == null) return;
             _load = true;
-            var mode = dg.EditMode;
             try
             {
                 if (dg.IsCurrentCellInEditMode) dg.EndEdit();
@@ -417,14 +466,22 @@ namespace SimulateurPliage.Vues
                 for (int i = 0; i < piece.Sequence.Count; i++)
                 {
                     var o = piece.Sequence[i];
+                    // Le V affiche est celui que le moteur utilisera : si la matrice n'a pas ce
+                    // ve, il prend le plus proche (Matrice.VProche) — pas le premier de la liste.
                     string vv = ((int)o.V).ToString();
-                    if (!vcol.Items.Contains(vv)) vv = v0;
-                    int bi = o.ButeeAval ? o.Bend + 1 : o.Bend;
+                    if (!vcol.Items.Contains(vv))
+                    {
+                        vv = matrice != null ? ((int)matrice.VProche(o.V).V).ToString() : v0;
+                        if (!vcol.Items.Contains(vv)) vv = v0;
+                    }
+                    // R = la cote du pan cale contre la butee, lue dans Piece.PanButee : la meme
+                    // regle que le moteur. Avant, le pupitre avait la sienne (⇄ seul) et affichait
+                    // 100·200·40·40·150 sur le cheneau quand l'ecran pliait 10·100·30·40·200.
                     dg.Rows.Add(
                         (i + 1).ToString("00"),
                         "P" + (o.Bend + 1),
-                        piece.ButeeInt(bi).ToString("0.0", CultureInfo.InvariantCulture),
-                        o.AngleCible.ToString("0", CultureInfo.InvariantCulture),
+                        TexteR(piece.CoteButee(o)),
+                        TexteAngle(o.AngleCible),
                         o.Sens == Sens.Haut ? "Haut" : "Bas",
                         vv,
                         o.ButeeAval,
@@ -433,7 +490,7 @@ namespace SimulateurPliage.Vues
                 }
 
                 // ligne FIN : le dernier pan, sans pli apres lui. Pas de bouton ✕ dessus.
-                int fr = dg.Rows.Add("—", "fin", piece.ButeeInt(piece.NbPlis).ToString("0.0", CultureInfo.InvariantCulture), "", null, null, false, false, false);
+                int fr = dg.Rows.Add("—", "fin", TexteR(piece.ButeeInt(piece.NbPlis)), "", null, null, false, false, false);
                 dg.Rows[fr].Cells["del"] = new DataGridViewTextBoxCell { Value = "" };
 
                 if (cr >= 0 && cr < dg.Rows.Count && cc >= 0 && cc < dg.Columns.Count)
@@ -441,51 +498,57 @@ namespace SimulateurPliage.Vues
 
                 UpdateFoot();
             }
-            finally { dg.EditMode = mode; _load = false; }
+            // On FORCE EditOnEnter en sortie, on ne restaure pas la valeur lue a l'entree : si
+            // on entre ici alors que la grille est deja en EditProgrammatically, la « restaurer »
+            // la laisserait bloquee, impossible a saisir.
+            finally { dg.EditMode = DataGridViewEditMode.EditOnEnter; _load = false; }
 
             RecalcHits();
             dg.Invalidate();
         }
 
-        // relit toute la grille dans la Piece (source unique de verite)
-        void ReadBack()
+        // Relit LA cellule qui vient d'etre saisie — et rien d'autre.
+        //
+        // L'ancien ReadBack relisait TOUTE la grille a chaque saisie et reecrivait chaque R
+        // dans « son » pan. Deux degats :
+        //   - cocher/decocher ⇄ change le pan lu, mais la case R affiche encore l'ANCIENNE
+        //     cote : elle etait ecrite dans le NOUVEAU pan. Un clic sur ⇄ du chevetre faisait
+        //     passer les pans de 20·40·100·40·20 a 20·40·100·20·20, sans rien dire.
+        //   - deux lignes qui lisent le meme pan (ou une ligne et la ligne « fin ») : la
+        //     derniere relue ecrasait la saisie. Sur le Z laque, taper 12 sur la ligne 1
+        //     etait annule par la ligne « fin ».
+        // Il reconstruisait aussi les operations a neuf et perdait leur axe.
+        void ReadBack(int ligne, string colonne)
         {
             if (piece == null) return;
             int n = piece.Sequence.Count;
-            if (dg.Rows.Count < n + 1) return;
-            var list = new List<Operation>(n);
+            if (dg.Rows.Count < n + 1 || ligne < 0 || ligne > n) return;
+            var row = dg.Rows[ligne];
 
-            for (int i = 0; i < dg.Rows.Count; i++)
+            if (ligne == n)   // ligne FIN : seul R se saisit, c'est le dernier pan
             {
-                var row = dg.Rows[i];
-
-                if (i == n)   // ligne FIN
-                {
-                    piece.SetButeeInt(piece.NbPlis, ParseD(row.Cells["r"].Value, piece.ButeeInt(piece.NbPlis)));
-                    continue;
-                }
-
-                int pli = (int)ParseD(row.Cells["pli"].Value, i + 1);
-                int bend = Math.Max(0, Math.Min(Math.Max(0, piece.NbPlis - 1), pli - 1));
-                bool aval = row.Cells["inv"].Value is bool ba && ba;
-
-                // la cote R saisie porte sur le pan effectivement lu par la butee
-                int bi = Math.Min(piece.Segments.Count - 1, aval ? bend + 1 : bend);
-                piece.SetButeeInt(bi, ParseD(row.Cells["r"].Value, piece.ButeeInt(bi)));
-
-                list.Add(new Operation
-                {
-                    Bend = bend,
-                    AngleCible = Math.Max(1, Math.Min(179, ParseD(row.Cells["ang"].Value, 90))),
-                    Sens = (row.Cells["sens"].Value as string) == "Bas" ? Sens.Bas : Sens.Haut,
-                    V = ParseD(row.Cells["v"].Value, 16),
-                    ButeeAval = aval,
-                    Retournee = row.Cells["ret"].Value is bool br && br,
-                    Reprise = false   // déduit après coup par NormaliserReprises
-                });
+                if (colonne == "r") EcrirePan(piece.NbPlis, row.Cells["r"].Value);
+                return;
             }
-            piece.Sequence = list;
+
+            var o = piece.Sequence[ligne];
+            switch (colonne)
+            {
+                case "r":    EcrirePan(piece.PanButee(o), row.Cells["r"].Value); break;
+                case "ang":  o.AngleCible = Math.Max(1, Math.Min(179, ParseD(row.Cells["ang"].Value, o.AngleCible))); break;
+                case "sens": o.Sens = (row.Cells["sens"].Value as string) == "Bas" ? Sens.Bas : Sens.Haut; break;
+                case "v":    o.V = ParseD(row.Cells["v"].Value, o.V); break;
+                case "inv":  o.ButeeAval = row.Cells["inv"].Value is bool ba && ba; break;
+                case "ret":  o.Retournee = row.Cells["ret"].Value is bool br && br; break;
+            }
             piece.NormaliserReprises();
+        }
+
+        // une cote nulle, negative ou illisible ne remplace pas un pan : on garde l'ancien
+        void EcrirePan(int pan, object saisie)
+        {
+            double v = ParseD(saisie, -1);
+            if (v > 0 && !double.IsInfinity(v)) piece.SetButeeInt(pan, v);
         }
 
         // "P2" -> 2 ; "90°" -> 90 ; "40,5" -> 40.5
